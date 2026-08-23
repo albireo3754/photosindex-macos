@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "indexRunID": "run_example",
+  "groupID": "segment_example",
+  "label": "sample-restaurant",
+  "confidence": 0.9,
+  "includedAssetIDs": [
+    "ast_example_food"
+  ],
+  "excludedAssetIDs": [
+    "ast_example_personal"
+  ],
+  "evidenceReferences": [
+    "page-1/sample-001"
+  ],
+  "unknowns": []
+}

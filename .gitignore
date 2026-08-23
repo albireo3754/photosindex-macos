@@ -1,0 +1,61 @@
+# Swift Package Manager and Xcode
+.build/
+.swiftpm/
+DerivedData/
+*.dSYM/
+*.xcarchive
+*.xcresult
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+*.xccheckout
+*.moved-aside
+*.hmap
+
+# macOS and editors
+.DS_Store
+._*
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Local configuration and signing material
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+*.mobileprovision
+*.provisionprofile
+
+# PhotosIndex runtime output and user media
+.local-run/
+.photosindex/
+photosindex-output/
+/samples/
+/originals/
+/evidence.json
+/summary.md
+/manifest.json
+/receipt.json
+/move-plan-*.json
+/move-receipt.json
+*.photoslibrary/
+*.heic
+*.dng
+*.aae
+*.mov
+*.mp4
+*.m4v
+
+# Agent and workflow runtime state
+.codex-workflows/
+.claude/settings.local.json
+*.log
+*.tmp

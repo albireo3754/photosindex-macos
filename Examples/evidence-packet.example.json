@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "indexRunID": "run_example",
+  "generatedAt": "2026-01-15T03:01:00Z",
+  "timezone": "Etc/UTC",
+  "group": {
+    "id": "segment_example",
+    "level": "fine",
+    "localDate": "2026-01-15",
+    "start": "2026-01-15T03:00:00Z",
+    "end": "2026-01-15T03:01:00Z",
+    "assetIDs": [
+      "ast_example_food",
+      "ast_example_personal"
+    ],
+    "warnings": []
+  },
+  "assets": [
+    {
+      "id": "ast_example_food",
+      "capturedAt": "2026-01-15T03:00:00Z",
+      "mediaKind": "photo",
+      "durationSeconds": 0,
+      "pixelWidth": 1200,
+      "pixelHeight": 900,
+      "hasLocation": false,
+      "publicFilename": "IMG_0001.HEIC"
+    },
+    {
+      "id": "ast_example_personal",
+      "capturedAt": "2026-01-15T03:01:00Z",
+      "mediaKind": "photo",
+      "durationSeconds": 0,
+      "pixelWidth": 1200,
+      "pixelHeight": 900,
+      "hasLocation": false,
+      "publicFilename": "IMG_0002.HEIC"
+    }
+  ],
+  "samples": [
+    {
+      "id": "sample-001",
+      "assetID": "ast_example_food",
+      "kind": "photoThumbnail",
+      "relativePath": "samples/001.jpg",
+      "position": null,
+      "ocr": [
+        {
+          "text": "sample restaurant",
+          "confidence": 0.92
+        }
+      ],
+      "privacyFlags": []
+    },
+    {
+      "id": "sample-002",
+      "assetID": "ast_example_personal",
+      "kind": "photoThumbnail",
+      "relativePath": "samples/002.jpg",
+      "position": null,
+      "ocr": [],
+      "privacyFlags": [
+        "face-detected"
+      ]
+    }
+  ],
+  "warnings": []
+}

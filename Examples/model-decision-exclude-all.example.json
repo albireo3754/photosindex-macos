@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "indexRunID": "run_example",
+  "groupID": "segment_example",
+  "label": "no-exportable-assets",
+  "confidence": 0.9,
+  "includedAssetIDs": [],
+  "excludedAssetIDs": [
+    "ast_example_food",
+    "ast_example_personal"
+  ],
+  "evidenceReferences": [
+    "page-1/sample-001",
+    "page-1/sample-002"
+  ],
+  "unknowns": []
+}
