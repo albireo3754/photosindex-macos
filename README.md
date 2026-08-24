@@ -16,7 +16,9 @@ and evidence without reading the Photos library database directly.
   versioned requests over an owner-only Unix domain socket.
 - Builds deterministic capture groups at two levels:
   - `coarse`: larger visit/session grouping.
-  - `fine`: smaller candidate event grouping.
+  - `fine`: smaller candidate event grouping; nearby captures can remain together
+    for the `coarse` time window, while missing location uses the shorter `fine`
+    time window.
 - Generates bounded evidence pages for one group: up to 12 JPEG previews per
   page, OCR text, privacy flags, and redacted email/phone/long numeric
   identifiers, with explicit paging until every asset is covered.

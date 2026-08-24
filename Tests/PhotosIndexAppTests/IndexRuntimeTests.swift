@@ -21,8 +21,8 @@ final class IndexRuntimeTests: XCTestCase {
 
         XCTAssertEqual(result.assetCount, 3)
         XCTAssertEqual(result.coarseSessionCount, 1)
-        XCTAssertEqual(result.fineGroupCount, 2)
-        XCTAssertEqual(groups.groups.map(\.assetIDs), [[assets[0].id, assets[1].id], [assets[2].id]])
+        XCTAssertEqual(result.fineGroupCount, 1)
+        XCTAssertEqual(groups.groups.map(\.assetIDs), [assets.map(\.id)])
         XCTAssertFalse(result.indexRunID.isEmpty)
         _ = calendar
     }
