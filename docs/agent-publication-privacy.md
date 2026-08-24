@@ -77,6 +77,11 @@ partially visible addresses, distinctive path fragments, or hashes of private
 identifiers. If the information is unnecessary, omit it rather than redact it
 in place.
 
+A value described as `public` by an application or API is not automatically
+safe for Internet publication. An identifier derived from private runtime data
+remains private for public-artifact purposes even when it may cross a local
+application, CLI, or API boundary.
+
 ## Safe Public Reproduction
 
 Public examples and tests must use unmistakably synthetic data. Replace private

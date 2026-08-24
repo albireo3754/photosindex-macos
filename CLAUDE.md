@@ -41,7 +41,9 @@ into the CLI.
   decisions, Photos identifiers, exact GPS, local paths, credentials, signing
   material, or workflow run logs.
 - Put local runtime output under `.photosindex/` or another ignored directory.
-- The CLI may expose coarse metadata and public hashed asset IDs, but never a
+- The CLI may expose coarse metadata and hashed asset IDs to local callers. The
+  `public` label distinguishes those IDs from PhotoKit local identifiers; it
+  does not authorize publishing them in public artifacts. Never expose a
   PhotoKit local identifier or exact coordinate.
 - Evidence is paged and capped at 12 samples per page. A group is a time/location
   cohort, not semantic proof.
