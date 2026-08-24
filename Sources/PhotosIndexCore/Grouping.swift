@@ -59,33 +59,34 @@ public struct AssetGrouper: Sendable {
         fine: GroupingPolicy
     ) -> [CaptureSession] {
         let sorted = assets.sorted(by: sortAssets)
-        let coarseGroups = partition(
+        let coarseAssetGroups = partition(
             sorted,
             timezone: timezone,
             policy: coarse,
             nearbyMaxGap: coarse.maxGap
         )
-        return coarseGroups.map { group in
-            let date = localDate(group.first?.capturedAt, timezone: timezone)
-            let sessionID = stableID(prefix: "session", date: date, ids: group.map(\.id))
-            let segments = partition(
-                group,
+        return coarseAssetGroups.map { coarseAssetGroup in
+            let date = localDate(coarseAssetGroup.first?.capturedAt, timezone: timezone)
+            let sessionID = stableID(prefix: "session", date: date, ids: coarseAssetGroup.map(\.id))
+            let fineAssetGroups = partition(
+                coarseAssetGroup,
                 timezone: timezone,
                 policy: fine,
                 nearbyMaxGap: coarse.maxGap
-            ).map { segment in
-                let warnings = segment.contains(where: { $0.coordinate == nil })
+            )
+            let segments = fineAssetGroups.map { fineAssetGroup in
+                let warnings = fineAssetGroup.contains(where: { $0.coordinate == nil })
                     ? ["some_assets_without_location"] : []
                 return CaptureSegment(
-                    id: stableID(prefix: "segment", date: date, ids: segment.map(\.id)),
-                    assetIDs: segment.map(\.id),
+                    id: stableID(prefix: "segment", date: date, ids: fineAssetGroup.map(\.id)),
+                    assetIDs: fineAssetGroup.map(\.id),
                     warnings: warnings
                 )
             }
             return CaptureSession(
                 id: sessionID,
                 localDate: date,
-                assetIDs: group.map(\.id),
+                assetIDs: coarseAssetGroup.map(\.id),
                 segments: segments
             )
         }

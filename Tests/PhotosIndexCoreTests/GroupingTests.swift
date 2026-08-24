@@ -23,14 +23,14 @@ final class GroupingTests: XCTestCase {
         XCTAssertEqual(sessions[0].assetIDs, ["a", "b"])
     }
 
-    func testCoarseSplitsNearbyCapturesAtDifferentLocations() throws {
+    func testCoarseSplitsCapturesBeyondDistanceLimit() throws {
         let start = Date(timeIntervalSince1970: 1_000)
         let assets = [
             GroupingAsset(id: "a", capturedAt: start, coordinate: GeoPoint(latitude: 10, longitude: 20)),
             GroupingAsset(
                 id: "b",
                 capturedAt: start.addingTimeInterval(10 * 60),
-                coordinate: GeoPoint(latitude: 11, longitude: 20)
+                coordinate: GeoPoint(latitude: 10.006, longitude: 20)
             ),
         ]
 
