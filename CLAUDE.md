@@ -7,12 +7,14 @@ transport client and must remain free of PhotoKit.
 
 ## Read First
 
-1. `README.md` — product behavior, build commands, CLI contract, and privacy
+1. `docs/agent-publication-privacy.md` — mandatory privacy gate for public
+   commits, issues, pull requests, comments, releases, and attachments.
+2. `README.md` — product behavior, build commands, CLI contract, and privacy
    boundaries.
-2. `docs/verified-move-design.md` — copy, upload, rehash, delete, and recovery
+3. `docs/verified-move-design.md` — copy, upload, rehash, delete, and recovery
    invariants.
-3. `docs/local-development-signing.md` — stable local signing and TCC identity.
-4. `.agents/skills/use-photosindex/SKILL.md` — safe agent-facing operating
+4. `docs/local-development-signing.md` — stable local signing and TCC identity.
+5. `.agents/skills/use-photosindex/SKILL.md` — safe agent-facing operating
    sequence.
 
 ## Module Boundaries
@@ -76,6 +78,11 @@ safety invariant being changed.
   visibly synthetic.
 - `CLAUDE.md` is the canonical agent guide. `AGENTS.md` must remain a symlink to
   it so clients share one source of truth.
+- Treat every remote target as public when its visibility is unknown. Before an
+  agent creates or updates an issue, pull request, comment, review, release, or
+  attachment, it must follow `docs/agent-publication-privacy.md`, show the exact
+  sanitized payload to the user, and receive explicit approval. Permission to
+  perform the task is not permission to disclose private context.
 - Do not add machine-specific absolute paths or personal email addresses.
 - Do not weaken `.gitignore` coverage for build, runtime, Xcode user data,
   signing material, environment files, or exported media.
