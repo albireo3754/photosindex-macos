@@ -23,6 +23,27 @@ final class GroupingTests: XCTestCase {
         XCTAssertEqual(sessions[0].assetIDs, ["a", "b"])
     }
 
+    func testCoarseSplitsCapturesBeyondDistanceLimit() throws {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let assets = [
+            GroupingAsset(id: "a", capturedAt: start, coordinate: GeoPoint(latitude: 10, longitude: 20)),
+            GroupingAsset(
+                id: "b",
+                capturedAt: start.addingTimeInterval(10 * 60),
+                coordinate: GeoPoint(latitude: 10.006, longitude: 20)
+            ),
+        ]
+
+        let sessions = AssetGrouper().group(
+            assets,
+            timezone: timezone,
+            coarse: .coarseDefault,
+            fine: .fineDefault
+        )
+
+        XCTAssertEqual(sessions.map(\.assetIDs), [["a"], ["b"]])
+    }
+
     func testFineGapOverThirtyMinutesSplitsSegments() throws {
         let start = Date(timeIntervalSince1970: 1_000)
         let assets = [
@@ -40,6 +61,110 @@ final class GroupingTests: XCTestCase {
         XCTAssertEqual(sessions.count, 1)
         XCTAssertEqual(sessions[0].segments.map(\.assetIDs), [["a"], ["b"]])
         XCTAssertTrue(sessions[0].segments.allSatisfy { $0.warnings.contains("some_assets_without_location") })
+    }
+
+    func testFineSplitsDifferentLocationsWithinCoarseDistance() throws {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let assets = [
+            GroupingAsset(id: "a", capturedAt: start, coordinate: GeoPoint(latitude: 10, longitude: 20)),
+            GroupingAsset(
+                id: "b",
+                capturedAt: start.addingTimeInterval(10 * 60),
+                coordinate: GeoPoint(latitude: 10.003, longitude: 20)
+            ),
+        ]
+
+        let sessions = AssetGrouper().group(
+            assets,
+            timezone: timezone,
+            coarse: .coarseDefault,
+            fine: .fineDefault
+        )
+
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions[0].segments.map(\.assetIDs), [["a"], ["b"]])
+    }
+
+    func testFineKeepsSparseCapturesAtSameLocationWithinCoarseGap() throws {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let location = GeoPoint(latitude: 10, longitude: 20)
+        let assets = [
+            GroupingAsset(id: "a", capturedAt: start, coordinate: location),
+            GroupingAsset(id: "b", capturedAt: start.addingTimeInterval(90 * 60), coordinate: location),
+        ]
+
+        let sessions = AssetGrouper().group(
+            assets,
+            timezone: timezone,
+            coarse: .coarseDefault,
+            fine: .fineDefault
+        )
+
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions[0].segments.map(\.assetIDs), [["a", "b"]])
+    }
+
+    func testFineSameLocationBoundaryIsInclusive() throws {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let location = GeoPoint(latitude: 10, longitude: 20)
+        let assets = [
+            GroupingAsset(id: "a", capturedAt: start, coordinate: location),
+            GroupingAsset(
+                id: "b",
+                capturedAt: start.addingTimeInterval(GroupingPolicy.coarseDefault.maxGap),
+                coordinate: location
+            ),
+        ]
+
+        let sessions = AssetGrouper().group(
+            assets,
+            timezone: timezone,
+            coarse: .coarseDefault,
+            fine: .fineDefault
+        )
+
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions[0].segments.map(\.assetIDs), [["a", "b"]])
+    }
+
+    func testSameLocationBeyondCoarseGapStartsNewSession() throws {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let location = GeoPoint(latitude: 10, longitude: 20)
+        let assets = [
+            GroupingAsset(id: "a", capturedAt: start, coordinate: location),
+            GroupingAsset(
+                id: "b",
+                capturedAt: start.addingTimeInterval(GroupingPolicy.coarseDefault.maxGap + 1),
+                coordinate: location
+            ),
+        ]
+
+        let sessions = AssetGrouper().group(
+            assets,
+            timezone: timezone,
+            coarse: .coarseDefault,
+            fine: .fineDefault
+        )
+
+        XCTAssertEqual(sessions.map(\.assetIDs), [["a"], ["b"]])
+    }
+
+    func testSameLocationAcrossLocalDateBoundaryStartsNewSession() throws {
+        let start = ISO8601DateFormatter().date(from: "2026-01-14T14:59:00Z")!
+        let location = GeoPoint(latitude: 10, longitude: 20)
+        let assets = [
+            GroupingAsset(id: "a", capturedAt: start, coordinate: location),
+            GroupingAsset(id: "b", capturedAt: start.addingTimeInterval(2 * 60), coordinate: location),
+        ]
+
+        let sessions = AssetGrouper().group(
+            assets,
+            timezone: timezone,
+            coarse: .coarseDefault,
+            fine: .fineDefault
+        )
+
+        XCTAssertEqual(sessions.map(\.assetIDs), [["a"], ["b"]])
     }
 
     func testSortingUsesAssetIDForEqualCaptureDates() throws {

@@ -59,23 +59,34 @@ public struct AssetGrouper: Sendable {
         fine: GroupingPolicy
     ) -> [CaptureSession] {
         let sorted = assets.sorted(by: sortAssets)
-        let coarseGroups = partition(sorted, timezone: timezone, policy: coarse)
-        return coarseGroups.map { group in
-            let date = localDate(group.first?.capturedAt, timezone: timezone)
-            let sessionID = stableID(prefix: "session", date: date, ids: group.map(\.id))
-            let segments = partition(group, timezone: timezone, policy: fine).map { segment in
-                let warnings = segment.contains(where: { $0.coordinate == nil })
+        let coarseAssetGroups = partition(
+            sorted,
+            timezone: timezone,
+            policy: coarse,
+            nearbyMaxGap: coarse.maxGap
+        )
+        return coarseAssetGroups.map { coarseAssetGroup in
+            let date = localDate(coarseAssetGroup.first?.capturedAt, timezone: timezone)
+            let sessionID = stableID(prefix: "session", date: date, ids: coarseAssetGroup.map(\.id))
+            let fineAssetGroups = partition(
+                coarseAssetGroup,
+                timezone: timezone,
+                policy: fine,
+                nearbyMaxGap: coarse.maxGap
+            )
+            let segments = fineAssetGroups.map { fineAssetGroup in
+                let warnings = fineAssetGroup.contains(where: { $0.coordinate == nil })
                     ? ["some_assets_without_location"] : []
                 return CaptureSegment(
-                    id: stableID(prefix: "segment", date: date, ids: segment.map(\.id)),
-                    assetIDs: segment.map(\.id),
+                    id: stableID(prefix: "segment", date: date, ids: fineAssetGroup.map(\.id)),
+                    assetIDs: fineAssetGroup.map(\.id),
                     warnings: warnings
                 )
             }
             return CaptureSession(
                 id: sessionID,
                 localDate: date,
-                assetIDs: group.map(\.id),
+                assetIDs: coarseAssetGroup.map(\.id),
                 segments: segments
             )
         }
@@ -97,13 +108,20 @@ public struct AssetGrouper: Sendable {
     private func partition(
         _ assets: [GroupingAsset],
         timezone: TimeZone,
-        policy: GroupingPolicy
+        policy: GroupingPolicy,
+        nearbyMaxGap: TimeInterval
     ) -> [[GroupingAsset]] {
         guard let first = assets.first else { return [] }
         var output: [[GroupingAsset]] = [[first]]
         for asset in assets.dropFirst() {
             let previous = output[output.count - 1].last!
-            if shouldSplit(previous, asset, timezone: timezone, policy: policy) {
+            if shouldSplit(
+                previous,
+                asset,
+                timezone: timezone,
+                policy: policy,
+                nearbyMaxGap: nearbyMaxGap
+            ) {
                 output.append([asset])
             } else {
                 output[output.count - 1].append(asset)
@@ -116,7 +134,8 @@ public struct AssetGrouper: Sendable {
         _ lhs: GroupingAsset,
         _ rhs: GroupingAsset,
         timezone: TimeZone,
-        policy: GroupingPolicy
+        policy: GroupingPolicy,
+        nearbyMaxGap: TimeInterval
     ) -> Bool {
         guard let leftDate = lhs.capturedAt, let rightDate = rhs.capturedAt else {
             return lhs.capturedAt == nil || rhs.capturedAt == nil
@@ -124,14 +143,14 @@ public struct AssetGrouper: Sendable {
         if localDate(leftDate, timezone: timezone) != localDate(rightDate, timezone: timezone) {
             return true
         }
-        if rightDate.timeIntervalSince(leftDate) > policy.maxGap {
-            return true
+        let gap = rightDate.timeIntervalSince(leftDate)
+        if let left = lhs.coordinate, let right = rhs.coordinate {
+            if distance(from: left, to: right) > policy.maxDistanceMeters {
+                return true
+            }
+            return gap > nearbyMaxGap
         }
-        if let left = lhs.coordinate, let right = rhs.coordinate,
-           distance(from: left, to: right) > policy.maxDistanceMeters {
-            return true
-        }
-        return false
+        return gap > policy.maxGap
     }
 
     private func localDate(_ date: Date?, timezone: TimeZone) -> String {
