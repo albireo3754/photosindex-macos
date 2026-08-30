@@ -8,11 +8,13 @@ public enum MediaKind: String, Codable, Sendable {
 public enum GroupLevel: String, Codable, Sendable {
     case coarse
     case fine
+    case mediaKind = "media-kind"
 }
 
 public struct CaptureGroup: Codable, Equatable, Sendable {
     public let id: String
     public let level: GroupLevel
+    public let mediaKind: MediaKind?
     public let localDate: String
     public let start: Date?
     public let end: Date?
@@ -22,6 +24,7 @@ public struct CaptureGroup: Codable, Equatable, Sendable {
     public init(
         id: String,
         level: GroupLevel,
+        mediaKind: MediaKind? = nil,
         localDate: String,
         start: Date?,
         end: Date?,
@@ -30,6 +33,7 @@ public struct CaptureGroup: Codable, Equatable, Sendable {
     ) {
         self.id = id
         self.level = level
+        self.mediaKind = mediaKind
         self.localDate = localDate
         self.start = start
         self.end = end

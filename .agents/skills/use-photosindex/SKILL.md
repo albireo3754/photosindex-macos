@@ -11,7 +11,7 @@ PhotosIndex supplies bounded evidence; the calling agent decides semantics. A ca
 
 1. Run `photosindex status --format json`. If Photos access is not authorized, run `photosindex authorize --format json` and let the user resolve the macOS prompt. Never bypass TCC or query `Photos.sqlite`.
 2. Run `photosindex sync --date YYYY-MM-DD --wait --format json`. Record its `indexRunID`.
-3. Run `photosindex groups list --date YYYY-MM-DD --level fine --format json`, then `photosindex groups show <groupID> --index-run <indexRunID> --format json` for every group in scope. Metadata narrows context but does not prove an event.
+3. Choose one grouping level for the requested scope. Use `fine` by default. Use `media-kind` only when the user explicitly requests a whole date split into one photo batch and one video batch; it is transport grouping, not semantic proof. Run `photosindex groups list --date YYYY-MM-DD --level <fine|media-kind> --format json`, then `photosindex groups show <groupID> --index-run <indexRunID> --format json` for every group in scope. Metadata narrows context but does not prove an event.
 4. Inspect every asset, not only the first sample page. Run `photosindex groups inspect <groupID> --index-run <indexRunID> --page 1 --page-size 12 --samples 12 --output <temporary-directory>/page-1 --format json`, incrementing `--page` and using a new output directory until `remainingAssetIDs` is empty. Each video sample is a Photos-managed poster preview, not proof of every scene. Reject a packet with more than 12 samples, a mismatched run/group/page, or missing coverage; exclude a video whose poster is ambiguous.
 5. Classify outside PhotosIndex. Include an asset only when its own sample directly supports the requested Naver Clip use. Put every personal, ambiguous, privacy-sensitive, unrelated, or unobserved asset in `excludedAssetIDs`, with a local audit reason of `personal`, `unknown`, `privacy`, `unrelated`, or `unobserved`.
 
@@ -21,7 +21,11 @@ Write one complete `ModelDecision` whose included and excluded IDs are disjoint 
 {"schemaVersion":1,"indexRunID":"run_...","groupID":"segment_...","label":"음식점-상호미확인","confidence":0.9,"includedAssetIDs":[],"excludedAssetIDs":[],"evidenceReferences":["page-1/sample_..."],"unknowns":[]}
 ```
 
-Every included ID needs a directly linked sample. Confidence cannot exceed the weakest included classification. `unknowns` records unresolved selected-result claims, not exclusion reasons. Use a venue name only when OCR or visible evidence supports it; otherwise use a factual generic label such as `음식점-상호미확인`. Multiple 12-asset evidence pages may support one decision, with at most 120 selected assets per operation.
+Every semantically classified included ID needs a directly linked sample. Confidence cannot exceed the weakest included classification. `unknowns` records unresolved selected-result claims, not exclusion reasons. Use a venue name only when OCR or visible evidence supports it; otherwise use a factual generic label such as `음식점-상호미확인`. Multiple 12-asset evidence pages may support one decision, and the decision has no asset-count ceiling.
+
+For an explicitly requested whole-date media operation, list `media-kind` groups. Include the complete video group when the operator asked for all videos from that date. For the photo group, inspect every evidence page, include only photos directly supported as receipts, and exclude all other photos. Keep the two decisions and operations separate so their labels and receipts remain unambiguous. A fully inspected `media-kind` group may be used for copy-only export or verified move.
+
+Copy-only export and destructive move have no selected-asset limit. Safety comes from the explicit complete partition, digest-bound plan, destination byte and SHA-256 verification, iCloud uploaded/current gate, exact PhotoKit deletion set, and recoverable move receipt rather than an arbitrary batch-size ceiling.
 
 ## Verified move gate (default organization action)
 
@@ -53,4 +57,4 @@ After each move:
 
 ## Explicit copy-only mode
 
-Use `photosindex export plan` and `photosindex export apply` only when the user explicitly wants a duplicate while retaining Photos originals. Copy mode writes `manifest.json` and `receipt.json` but never deletes. Do not use a broader destination, whole-library export, direct Photos database/library paths, PhotoKit local identifiers, or exact GPS. If a required command is unavailable, report it as the blocker instead of inventing a workaround.
+Use `photosindex export plan` and `photosindex export apply` only when the user explicitly wants a duplicate while retaining Photos originals. Copy mode writes `manifest.json` and `receipt.json` but never deletes. A large date-wide export may keep the CLI connected for up to four hours. If transport fails after request transmission, inspect the destination and retry only the same plan and digest after reconciling any existing manifest and receipt; never create or submit a replacement plan blindly. Do not use a broader destination, whole-library export, direct Photos database/library paths, PhotoKit local identifiers, or exact GPS. If a required command is unavailable, report it as the blocker instead of inventing a workaround.

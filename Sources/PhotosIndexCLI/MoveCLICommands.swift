@@ -80,7 +80,9 @@ struct MoveApplyCommand: ParsableCommand {
         guard digest.count == 64, digest.allSatisfy(\.isHexDigit) else {
             throw CLIError.commandFailed("--digest must be a 64-character SHA-256")
         }
-        let data = try AppConnection().run(
+        let data = try AppConnection(
+            receiveTimeout: AppConnection.longRunningReceiveTimeout
+        ).run(
             CommandRequest(
                 method: "move.apply",
                 arguments: [

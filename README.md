@@ -14,11 +14,14 @@ and evidence without reading the Photos library database directly.
   face detection, and text redaction support.
 - Keeps app and CLI boundaries explicit: the app owns PhotoKit and the CLI sends
   versioned requests over an owner-only Unix domain socket.
-- Builds deterministic capture groups at two levels:
+- Builds deterministic capture groups at three levels:
   - `coarse`: larger visit/session grouping.
   - `fine`: smaller candidate event grouping; nearby captures can remain together
     for the `coarse` time window, while missing location uses the shorter `fine`
     time window.
+  - `media-kind`: at most one date-wide photo group and one date-wide video
+    group. This is a transport grouping, not proof that every photo is a receipt
+    or that every asset belongs to the same event.
 - Generates bounded evidence pages for one group: up to 12 JPEG previews per
   page, OCR text, privacy flags, and redacted email/phone/long numeric
   identifiers, with explicit paging until every asset is covered.
@@ -159,6 +162,7 @@ List deterministic groups from the current in-app index:
 ```bash
 photosindex groups list --date 2026-01-15 --level fine --format json
 photosindex groups list --date 2026-01-15 --level coarse --format json
+photosindex groups list --date 2026-01-15 --level media-kind --format json
 ```
 
 Show bounded metadata for one group:
@@ -219,6 +223,13 @@ photosindex move apply \
 `move apply` writes a digest-named move plan before source deletion and writes
 `move-receipt.json` only after PhotoKit confirms that exactly the selected
 public asset IDs are absent. Any upload or hash failure stops before deletion.
+Large iCloud originals may keep this command running for a long time: each
+PhotoKit original request is bounded at 15 minutes and the move CLI connection
+is allowed to remain open for up to four hours.
+The CLI may launch the app after a pre-request connection failure, but it never
+automatically resends a request after the socket connection was established.
+After an interrupted response, inspect the destination state and retry only the
+same plan and digest.
 Immediately before deletion, the app also writes an owner-only recovery journal
 under its Application Support directory. If the app exits after deletion but
 before the receipt is written, retry the exact same plan and digest; the app
@@ -250,7 +261,11 @@ photosindex export apply \
 
 `export apply` requires the current in-memory index to match the plan run and
 group, the plan digest to match the canonical plan JSON, and the digest to have
-been issued by the running app session.
+been issued by the running app session. Date-wide exports may run for a long
+time, so the CLI connection remains open for up to four hours. A transport
+failure after request transmission is not automatically retried; inspect the
+destination and retry only the same plan and digest after reconciling any
+existing manifest and receipt.
 
 ## ModelDecision Contract
 
@@ -266,11 +281,20 @@ The decision must:
 - Put every group asset ID in exactly one of `includedAssetIDs` or
   `excludedAssetIDs`.
 - Inspect every asset through 12-asset evidence pages; one verified decision may
-  select up to the 120-asset operation safety limit.
+  combine as many pages as the group requires.
 - Reference evidence that supports the selected assets.
 
 Assets that are personal, ambiguous, privacy-sensitive, or unsupported by the
 bounded evidence should be excluded.
+
+For a whole-date media operation, request `media-kind` groups. The video group can
+include every video when the operator explicitly wants the complete date-wide
+video set. Inspect the photo group page by page and include only photos whose
+own evidence supports the requested class, such as receipts; exclude every
+other photo. The 12-asset evidence page size remains bounded, but the final
+decision, export, and move have no asset-count ceiling. A `media-kind` decision
+may be used for copy-only export or verified move after every evidence page is
+inspected and the complete include/exclude partition is validated.
 
 ## Move And Export Output
 

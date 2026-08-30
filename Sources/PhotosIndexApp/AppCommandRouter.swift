@@ -93,7 +93,13 @@ final class AppCommandRouter: @unchecked Sendable {
                         )
                     )
                 }
-                let level = GroupLevel(rawValue: request.arguments["level"] ?? "fine") ?? .fine
+                let requestedLevel = request.arguments["level"] ?? "fine"
+                guard let level = GroupLevel(rawValue: requestedLevel) else {
+                    return invalidArguments(
+                        request.id,
+                        "Unsupported grouping level: \(requestedLevel)"
+                    )
+                }
                 return try .success(id: request.id, payload: runtime.groups(level: level))
             case "groups.show":
                 guard let id = request.arguments["id"] else {

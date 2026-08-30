@@ -14,7 +14,6 @@ public enum ExportError: Error, Equatable, Sendable {
     case unsafePath(String)
     case symlinkPath(String)
     case collision(path: String)
-    case selectionLimitExceeded(actual: Int, maximum: Int)
 }
 
 public enum MoveError: Error, Equatable, Sendable {
@@ -34,16 +33,13 @@ public protocol DestinationUploadVerifying: Sendable {
 public struct ExportPolicy: Equatable, Sendable {
     public let minimumConfidence: Double
     public let allowUnknowns: Bool
-    public let maxSelectedAssets: Int
 
     public init(
         minimumConfidence: Double = 0.80,
-        allowUnknowns: Bool = false,
-        maxSelectedAssets: Int = 120
+        allowUnknowns: Bool = false
     ) {
         self.minimumConfidence = minimumConfidence
         self.allowUnknowns = allowUnknowns
-        self.maxSelectedAssets = maxSelectedAssets
     }
 }
 

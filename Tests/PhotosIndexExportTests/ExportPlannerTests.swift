@@ -169,8 +169,8 @@ final class ExportPlannerTests: XCTestCase {
         XCTAssertEqual(plan.includedAssetIDs.count, 24)
     }
 
-    func testPlannerRejectsSelectionBeyondMoveSafetyLimit() throws {
-        let assets = (0..<121).map {
+    func testPlannerAcceptsLargeExplicitSelection() throws {
+        let assets = (0..<240).map {
             makeAsset(localIdentifier: "photo-\($0)", filename: String(format: "IMG_%04d.HEIC", $0))
         }
         let group = makeGroup(from: assets, warnings: [])
@@ -183,18 +183,16 @@ final class ExportPlannerTests: XCTestCase {
             unknowns: []
         )
 
-        XCTAssertThrowsError(
-            try planner.makePlan(
-                currentIndexRunID: "run_20260816",
-                decision: decision,
-                group: group,
-                assets: assets,
-                destinationRoot: destinationRoot,
-                stagingRoot: stagingRoot
-            )
-        ) { error in
-            XCTAssertEqual(error as? ExportError, .selectionLimitExceeded(actual: 121, maximum: 120))
-        }
+        let plan = try planner.makePlan(
+            currentIndexRunID: "run_20260816",
+            decision: decision,
+            group: group,
+            assets: assets,
+            destinationRoot: destinationRoot,
+            stagingRoot: stagingRoot
+        )
+
+        XCTAssertEqual(plan.includedAssetIDs.count, 240)
     }
 
     private func makeDecision(
@@ -223,6 +221,7 @@ final class ExportPlannerTests: XCTestCase {
         return CaptureGroup(
             id: "grp_20260816_01",
             level: .fine,
+            mediaKind: nil,
             localDate: "2026-01-15",
             start: capturedDates.first,
             end: capturedDates.last,

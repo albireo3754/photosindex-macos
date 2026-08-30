@@ -221,6 +221,51 @@ final class ExportCommandServiceTests: XCTestCase {
         }
     }
 
+    func testMovePlanAcceptsLargeDateWideMediaKindGroup() throws {
+        let root = temporaryDirectory("media-kind-move")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let allowedRoot = root.appendingPathComponent("Naver Clip", isDirectory: true)
+        let assets = (0..<140).map(makeVideoAsset)
+        let group = CaptureGroup(
+            id: "media-video_20260115_synthetic",
+            level: .mediaKind,
+            mediaKind: .video,
+            localDate: "2026-01-15",
+            start: assets.first?.capturedAt,
+            end: assets.last?.capturedAt,
+            assetIDs: assets.map(\.id),
+            warnings: []
+        )
+        let decision = try ModelDecision(
+            schemaVersion: 1,
+            indexRunID: "run_test",
+            groupID: group.id,
+            label: "videos",
+            confidence: 1,
+            includedAssetIDs: assets.map(\.id),
+            excludedAssetIDs: [],
+            evidenceReferences: ["all-pages-inspected"],
+            unknowns: []
+        )
+        let service = ExportCommandService(
+            allowedRoot: allowedRoot,
+            materializer: ServiceStubMaterializer(data: Data("sample-media".utf8)),
+            fileWriter: FileManagerExportWriter(),
+            temporaryRoot: root.appendingPathComponent("staging", isDirectory: true)
+        )
+
+        let envelope = try service.makeMovePlan(
+            currentIndexRunID: "run_test",
+            decision: decision,
+            group: group,
+            assets: assets,
+            requestedRoot: allowedRoot
+        )
+
+        XCTAssertEqual(envelope.plan.exportPlan.includedAssetIDs.count, 140)
+        XCTAssertEqual(envelope.plan.exportPlan.groupID, group.id)
+    }
+
     private func makeAsset() -> PhotoAsset {
         PhotoAssetMapper.map(
             PhotoMetadataInput(
@@ -236,10 +281,26 @@ final class ExportCommandServiceTests: XCTestCase {
         )
     }
 
+    private func makeVideoAsset(index: Int) -> PhotoAsset {
+        PhotoAssetMapper.map(
+            PhotoMetadataInput(
+                localIdentifier: "synthetic-video-\(index)",
+                capturedAt: Date(timeIntervalSince1970: 1_768_446_000 + Double(index)),
+                mediaKind: .video,
+                durationSeconds: 10,
+                pixelWidth: 1_920,
+                pixelHeight: 1_080,
+                coordinate: nil,
+                originalFilename: String(format: "VID_%04d.MOV", index)
+            )
+        )
+    }
+
     private func makeGroup(asset: PhotoAsset) -> CaptureGroup {
         CaptureGroup(
             id: "segment_test",
             level: .fine,
+            mediaKind: nil,
             localDate: "2026-01-15",
             start: asset.capturedAt,
             end: asset.capturedAt,

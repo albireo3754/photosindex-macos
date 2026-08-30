@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import PhotosIndexCommand
 import PhotosIndexCore
@@ -55,5 +56,94 @@ final class CommandRunnerTests: XCTestCase {
 
         XCTAssertEqual(payload.level, .fine)
         XCTAssertEqual(payload.indexRunID, "run_test")
+    }
+
+    func testGroupsListCommandRejectsDowngradedResponse() throws {
+        let path = "/tmp/photosindex-groups-mismatch-\(UUID().uuidString.prefix(8)).sock"
+        let host = UnixCommandHost(path: path)
+        try host.start { request in
+            XCTAssertEqual(request.arguments["level"], "media-kind")
+            return try! .success(
+                id: request.id,
+                payload: GroupsPayload(indexRunID: "run_test", level: .fine, groups: [])
+            )
+        }
+        defer { host.stop() }
+        let command = try XCTUnwrap(
+            try PhotosIndexCommandLine.parseAsRoot([
+                "groups", "list", "--level", "media-kind", "--format", "json",
+            ]) as? GroupsListCommand
+        )
+
+        XCTAssertThrowsError(try withSocketPath(path) {
+            var parsedCommand = command
+            try parsedCommand.run()
+        }) { error in
+            XCTAssertTrue(String(describing: error).contains("returned fine groups"))
+        }
+    }
+
+    func testGroupsListCommandRejectsUnsupportedLevelBeforeSending() throws {
+        var command = try XCTUnwrap(
+            try PhotosIndexCommandLine.parseAsRoot([
+                "groups", "list", "--level", "unsupported",
+            ]) as? GroupsListCommand
+        )
+
+        XCTAssertThrowsError(try command.run()) { error in
+            XCTAssertTrue(String(describing: error).contains("Unsupported grouping level"))
+        }
+    }
+
+    func testGroupsListCommandRejectsMismatchedGroupEntries() throws {
+        let path = "/tmp/photosindex-group-entry-mismatch-\(UUID().uuidString.prefix(8)).sock"
+        let host = UnixCommandHost(path: path)
+        let mismatchedGroup = CaptureGroup(
+            id: "segment_synthetic",
+            level: .fine,
+            mediaKind: nil,
+            localDate: "2026-01-15",
+            start: nil,
+            end: nil,
+            assetIDs: ["ast_synthetic"],
+            warnings: []
+        )
+        try host.start { request in
+            XCTAssertEqual(request.arguments["level"], "media-kind")
+            return try! .success(
+                id: request.id,
+                payload: GroupsPayload(
+                    indexRunID: "run_synthetic",
+                    level: .mediaKind,
+                    groups: [mismatchedGroup]
+                )
+            )
+        }
+        defer { host.stop() }
+        let command = try XCTUnwrap(
+            try PhotosIndexCommandLine.parseAsRoot([
+                "groups", "list", "--level", "media-kind", "--format", "json",
+            ]) as? GroupsListCommand
+        )
+
+        XCTAssertThrowsError(try withSocketPath(path) {
+            var parsedCommand = command
+            try parsedCommand.run()
+        }) { error in
+            XCTAssertTrue(String(describing: error).contains("group entries"))
+        }
+    }
+
+    private func withSocketPath(_ socketPath: String, operation: () throws -> Void) throws {
+        let oldSocket = getenv("PHOTOSINDEX_SOCKET_PATH").map { String(cString: $0) }
+        setenv("PHOTOSINDEX_SOCKET_PATH", socketPath, 1)
+        defer {
+            if let oldSocket {
+                setenv("PHOTOSINDEX_SOCKET_PATH", oldSocket, 1)
+            } else {
+                unsetenv("PHOTOSINDEX_SOCKET_PATH")
+            }
+        }
+        try operation()
     }
 }
