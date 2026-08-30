@@ -243,6 +243,7 @@ final class EvidenceGeneratorTests: XCTestCase {
         return CaptureGroup(
             id: "grp_test",
             level: .fine,
+            mediaKind: nil,
             localDate: "2026-01-15",
             start: sorted.compactMap(\.capturedAt).first,
             end: sorted.compactMap(\.capturedAt).last,

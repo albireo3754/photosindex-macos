@@ -127,6 +127,18 @@ final class AppCommandRouterTests: XCTestCase {
                 arguments: ["level": "fine", "date": "2026-01-15"]
             )
         )
+        let mediaGroupsResponse = router.handle(
+            CommandRequest(
+                method: "groups.list",
+                arguments: ["level": "media-kind", "date": "2026-01-15"]
+            )
+        )
+        let invalidLevelResponse = router.handle(
+            CommandRequest(
+                method: "groups.list",
+                arguments: ["level": "unsupported", "date": "2026-01-15"]
+            )
+        )
         let wrongDateResponse = router.handle(
             CommandRequest(
                 method: "groups.list",
@@ -135,6 +147,7 @@ final class AppCommandRouterTests: XCTestCase {
         )
         let indexRunID = try syncResponse.decodePayload(IndexSyncPayload.self).indexRunID
         let groupID = try groupsResponse.decodePayload(GroupsPayload.self).groups[0].id
+        let mediaGroupID = try mediaGroupsResponse.decodePayload(GroupsPayload.self).groups[0].id
         let timeoutRouter = AppCommandRouter(
             runtime: runtime,
             permission: { "authorized" },
@@ -166,6 +179,17 @@ final class AppCommandRouterTests: XCTestCase {
                 ]
             )
         )
+        let mediaInspectResponse = router.handle(
+            CommandRequest(
+                method: "groups.inspect",
+                arguments: [
+                    "id": mediaGroupID,
+                    "index-run": indexRunID,
+                    "output": "/tmp/photosindex-media-inspect-test",
+                    "samples": "12",
+                ]
+            )
+        )
         let oversizedInspectResponse = router.handle(
             CommandRequest(
                 method: "groups.inspect",
@@ -191,6 +215,10 @@ final class AppCommandRouterTests: XCTestCase {
 
         XCTAssertEqual(try syncResponse.decodePayload(IndexSyncPayload.self).assetCount, 1)
         XCTAssertEqual(try groupsResponse.decodePayload(GroupsPayload.self).groups.count, 1)
+        let mediaGroups = try mediaGroupsResponse.decodePayload(GroupsPayload.self)
+        XCTAssertEqual(mediaGroups.level, .mediaKind)
+        XCTAssertEqual(mediaGroups.groups.map(\.mediaKind), [.photo])
+        XCTAssertEqual(invalidLevelResponse.error?.code, "invalid-arguments")
         XCTAssertFalse(wrongDateResponse.ok)
         XCTAssertEqual(wrongDateResponse.error?.code, "index-date-mismatch")
         XCTAssertEqual(try showResponse.decodePayload(GroupDetailPayload.self).assets.count, 1)
@@ -203,6 +231,10 @@ final class AppCommandRouterTests: XCTestCase {
         XCTAssertEqual(
             try inspectResponse.decodePayload(EvidenceInspectionPayload.self).page.assetIDs,
             [asset.id]
+        )
+        XCTAssertEqual(
+            try mediaInspectResponse.decodePayload(EvidenceInspectionPayload.self).packet.group.level,
+            .mediaKind
         )
         XCTAssertEqual(oversizedInspectResponse.error?.code, "invalid-arguments")
         XCTAssertEqual(timedOutInspectResponse.error?.code, "evidence-timeout")
@@ -537,6 +569,7 @@ final class AppCommandRouterTests: XCTestCase {
         let group = CaptureGroup(
             id: "segment_recovery",
             level: .fine,
+            mediaKind: nil,
             localDate: "2026-01-15",
             start: capturedAt,
             end: capturedAt,

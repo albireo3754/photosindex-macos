@@ -67,7 +67,11 @@ public struct AssetGrouper: Sendable {
         )
         return coarseAssetGroups.map { coarseAssetGroup in
             let date = localDate(coarseAssetGroup.first?.capturedAt, timezone: timezone)
-            let sessionID = stableID(prefix: "session", date: date, ids: coarseAssetGroup.map(\.id))
+            let sessionID = stableGroupID(
+                prefix: "session",
+                date: date,
+                ids: coarseAssetGroup.map(\.id)
+            )
             let fineAssetGroups = partition(
                 coarseAssetGroup,
                 timezone: timezone,
@@ -78,7 +82,11 @@ public struct AssetGrouper: Sendable {
                 let warnings = fineAssetGroup.contains(where: { $0.coordinate == nil })
                     ? ["some_assets_without_location"] : []
                 return CaptureSegment(
-                    id: stableID(prefix: "segment", date: date, ids: fineAssetGroup.map(\.id)),
+                    id: stableGroupID(
+                        prefix: "segment",
+                        date: date,
+                        ids: fineAssetGroup.map(\.id)
+                    ),
                     assetIDs: fineAssetGroup.map(\.id),
                     warnings: warnings
                 )
@@ -172,9 +180,52 @@ public struct AssetGrouper: Sendable {
         return radius * 2 * atan2(sqrt(a), sqrt(1 - a))
     }
 
-    private func stableID(prefix: String, date: String, ids: [String]) -> String {
-        let digest = SHA256.hash(data: Data(ids.joined(separator: "\u{1f}").utf8))
-        let suffix = digest.prefix(4).map { String(format: "%02x", $0) }.joined()
-        return "\(prefix)_\(date.replacingOccurrences(of: "-", with: ""))_\(suffix)"
+}
+
+public struct MediaKindGrouper: Sendable {
+    public init() {}
+
+    public func group(_ assets: [EvidenceAsset], localDate: String) -> [CaptureGroup] {
+        [MediaKind.photo, .video].compactMap { mediaKind in
+            let matching = assets.filter { $0.mediaKind == mediaKind }.sorted(by: sortAssets)
+            guard !matching.isEmpty else { return nil }
+            let dates = matching.compactMap(\.capturedAt)
+            let assetIDs = matching.map(\.id)
+            let warnings = matching.contains { !$0.hasLocation }
+                ? ["some_assets_without_location"] : []
+            return CaptureGroup(
+                id: stableGroupID(
+                    prefix: "media-\(mediaKind.rawValue)",
+                    date: localDate,
+                    ids: assetIDs
+                ),
+                level: .mediaKind,
+                mediaKind: mediaKind,
+                localDate: localDate,
+                start: dates.first,
+                end: dates.last,
+                assetIDs: assetIDs,
+                warnings: warnings
+            )
+        }
     }
+
+    private func sortAssets(_ lhs: EvidenceAsset, _ rhs: EvidenceAsset) -> Bool {
+        switch (lhs.capturedAt, rhs.capturedAt) {
+        case let (left?, right?) where left != right:
+            return left < right
+        case (nil, _?):
+            return false
+        case (_?, nil):
+            return true
+        default:
+            return lhs.id < rhs.id
+        }
+    }
+}
+
+private func stableGroupID(prefix: String, date: String, ids: [String]) -> String {
+    let digest = SHA256.hash(data: Data(ids.joined(separator: "\u{1f}").utf8))
+    let suffix = digest.prefix(4).map { String(format: "%02x", $0) }.joined()
+    return "\(prefix)_\(date.replacingOccurrences(of: "-", with: ""))_\(suffix)"
 }

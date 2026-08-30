@@ -15,7 +15,7 @@ public final class PhotoKitAssetMaterializer: PhotoAssetMaterializing, @unchecke
 
     public init(
         fileWriter: any ExportWriting = FileManagerExportWriter(),
-        requestTimeout: TimeInterval = 300
+        requestTimeout: TimeInterval = 15 * 60
     ) {
         self.fileWriter = fileWriter
         self.requestTimeout = max(1, requestTimeout)

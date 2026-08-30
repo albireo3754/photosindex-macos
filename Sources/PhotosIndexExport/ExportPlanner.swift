@@ -90,13 +90,6 @@ public struct ExportPlanner: ExportPlanning, Sendable {
         let includedSet = Set(included)
         let excludedSet = Set(excluded)
 
-        guard included.count <= policy.maxSelectedAssets else {
-            throw ExportError.selectionLimitExceeded(
-                actual: included.count,
-                maximum: policy.maxSelectedAssets
-            )
-        }
-
         guard included.count == includedSet.count else {
             throw ExportError.duplicateAssetIDs(duplicateIDs(included))
         }

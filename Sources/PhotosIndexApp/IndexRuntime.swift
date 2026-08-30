@@ -16,6 +16,7 @@ final class IndexRuntime: @unchecked Sendable {
     private var indexedLocalDate: String?
     private var indexedAssets: [String: PhotoAsset] = [:]
     private var sessions: [CaptureSession] = []
+    private var mediaKindGroups: [CaptureGroup] = []
 
     init(library: any PhotoLibraryReading, timezone: TimeZone) {
         self.library = library
@@ -31,12 +32,17 @@ final class IndexRuntime: @unchecked Sendable {
             coarse: .coarseDefault,
             fine: .fineDefault
         )
+        let groupedByMediaKind = MediaKindGrouper().group(
+            assets.map(\.evidenceAsset),
+            localDate: localDate
+        )
         let runID = "run_\(UUID().uuidString.lowercased())"
         lock.lock()
         indexRunID = runID
         indexedLocalDate = localDate
         indexedAssets = Dictionary(uniqueKeysWithValues: assets.map { ($0.id, $0) })
         sessions = grouped
+        mediaKindGroups = groupedByMediaKind
         lock.unlock()
         return IndexSyncPayload(
             indexRunID: runID,
@@ -80,6 +86,8 @@ final class IndexRuntime: @unchecked Sendable {
                     )
                 }
             }
+        case .mediaKind:
+            groups = mediaKindGroups
         }
         return GroupsPayload(indexRunID: indexRunID, level: level, groups: groups)
     }
@@ -88,6 +96,9 @@ final class IndexRuntime: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard !indexRunID.isEmpty else { throw IndexRuntimeError.notIndexed }
+        if let group = mediaKindGroups.first(where: { $0.id == id }) {
+            return (indexRunID, group, group.assetIDs.compactMap { indexedAssets[$0] })
+        }
         for session in sessions {
             if session.id == id {
                 let group = captureGroup(
@@ -124,6 +135,7 @@ final class IndexRuntime: @unchecked Sendable {
         return CaptureGroup(
             id: id,
             level: level,
+            mediaKind: nil,
             localDate: localDate,
             start: dates.first,
             end: dates.last,

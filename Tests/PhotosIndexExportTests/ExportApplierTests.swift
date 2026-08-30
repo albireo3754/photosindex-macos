@@ -199,6 +199,7 @@ final class ExportApplierTests: XCTestCase {
         return CaptureGroup(
             id: "grp_20260816_01",
             level: .fine,
+            mediaKind: nil,
             localDate: "2026-01-15",
             start: capturedDates.first,
             end: capturedDates.last,

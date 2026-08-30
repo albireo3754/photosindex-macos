@@ -28,6 +28,7 @@ final class EvidenceInspectionServiceTests: XCTestCase {
         let group = CaptureGroup(
             id: "segment_timeout",
             level: .fine,
+            mediaKind: nil,
             localDate: "2026-01-15",
             start: asset.capturedAt,
             end: asset.capturedAt,

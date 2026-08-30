@@ -205,28 +205,48 @@ struct GroupsListCommand: ParsableCommand {
     @Option(name: .long, help: "Indexed local date (included in the request contract).")
     var date: String?
 
-    @Option(name: .long, help: "Grouping level: coarse or fine.")
+    @Option(name: .long, help: "Grouping level: coarse, fine, or media-kind.")
     var level = "fine"
 
     @Option(name: .long, help: "Output format: json or table.")
     var format = "table"
 
     mutating func run() throws {
-        var arguments = ["level": level]
+        guard let requestedLevel = GroupLevel(rawValue: level) else {
+            throw CLIError.commandFailed("Unsupported grouping level: \(level)")
+        }
+        var arguments = ["level": requestedLevel.rawValue]
         if let date { arguments["date"] = date }
         let request = CommandRequest(method: "groups.list", arguments: arguments)
         let data = try AppConnection().run(request, as: GroupsPayload.self)
+        let payload = try CanonicalJSON.decode(GroupsPayload.self, from: data)
+        guard payload.level == requestedLevel else {
+            throw CLIError.commandFailed(
+                "The app returned \(payload.level.rawValue) groups for a \(requestedLevel.rawValue) request"
+            )
+        }
+        let groupsMatchRequest = payload.groups.allSatisfy { group in
+            guard group.level == requestedLevel else { return false }
+            return requestedLevel == .mediaKind
+                ? group.mediaKind != nil
+                : group.mediaKind == nil
+        }
+        guard groupsMatchRequest else {
+            throw CLIError.commandFailed(
+                "The app returned group entries that do not match the \(requestedLevel.rawValue) request"
+            )
+        }
         if format == "json" {
             writeJSON(data)
             return
         }
-        let payload = try CanonicalJSON.decode(GroupsPayload.self, from: data)
-        print("group-id\tstart\tend\tassets\twarnings")
+        print("group-id\tlevel\tmedia-kind\tstart\tend\tassets\twarnings")
         let formatter = ISO8601DateFormatter()
         for group in payload.groups {
             let start = group.start.map(formatter.string(from:)) ?? "-"
             let end = group.end.map(formatter.string(from:)) ?? "-"
-            print("\(group.id)\t\(start)\t\(end)\t\(group.assetIDs.count)\t\(group.warnings.joined(separator: ","))")
+            let mediaKind = group.mediaKind?.rawValue ?? "-"
+            print("\(group.id)\t\(group.level.rawValue)\t\(mediaKind)\t\(start)\t\(end)\t\(group.assetIDs.count)\t\(group.warnings.joined(separator: ","))")
         }
     }
 }

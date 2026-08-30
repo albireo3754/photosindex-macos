@@ -381,6 +381,7 @@ final class MoveApplierTests: XCTestCase {
         let group = CaptureGroup(
             id: "segment_test",
             level: .fine,
+            mediaKind: nil,
             localDate: "2026-01-15",
             start: included.capturedAt,
             end: included.capturedAt,

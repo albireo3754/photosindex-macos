@@ -7,6 +7,7 @@ final class ModelsTests: XCTestCase {
         let group = CaptureGroup(
             id: "grp_fine_1",
             level: .fine,
+            mediaKind: nil,
             localDate: "2026-01-15",
             start: Date(timeIntervalSince1970: 100),
             end: Date(timeIntervalSince1970: 200),
@@ -59,5 +60,30 @@ final class ModelsTests: XCTestCase {
                 unknowns: []
             )
         )
+    }
+
+    func testCaptureGroupDecodesLegacyPayloadWithoutMediaKind() throws {
+        let data = Data(
+            #"{"assetIDs":["ast_synthetic"],"end":null,"id":"segment_synthetic","level":"fine","localDate":"2026-01-15","start":null,"warnings":[]}"#.utf8
+        )
+
+        let group = try CanonicalJSON.decode(CaptureGroup.self, from: data)
+
+        XCTAssertEqual(group.level, .fine)
+        XCTAssertNil(group.mediaKind)
+    }
+
+    func testCaptureGroupLegacyInitializerDefaultsMediaKindToNil() {
+        let group = CaptureGroup(
+            id: "segment_synthetic",
+            level: .fine,
+            localDate: "2026-01-15",
+            start: nil,
+            end: nil,
+            assetIDs: ["ast_synthetic"],
+            warnings: []
+        )
+
+        XCTAssertNil(group.mediaKind)
     }
 }

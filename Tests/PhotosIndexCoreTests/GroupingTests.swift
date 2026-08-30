@@ -181,4 +181,56 @@ final class GroupingTests: XCTestCase {
 
         XCTAssertEqual(sessions[0].assetIDs, ["a", "b"])
     }
+
+    func testMediaKindGroupingBuildsOneDateWideGroupPerKind() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let assets = [
+            evidenceAsset(id: "video-late", date: start.addingTimeInterval(60), kind: .video, hasLocation: true),
+            evidenceAsset(id: "photo-late", date: start.addingTimeInterval(120), kind: .photo, hasLocation: false),
+            evidenceAsset(id: "photo-early", date: start, kind: .photo, hasLocation: true),
+        ]
+
+        let groups = MediaKindGrouper().group(assets, localDate: "2026-01-15")
+
+        XCTAssertEqual(groups.map(\.mediaKind), [.photo, .video])
+        XCTAssertTrue(groups.allSatisfy { $0.level == .mediaKind })
+        XCTAssertEqual(groups[0].assetIDs, ["photo-early", "photo-late"])
+        XCTAssertEqual(groups[1].assetIDs, ["video-late"])
+        XCTAssertEqual(groups[0].warnings, ["some_assets_without_location"])
+        XCTAssertEqual(groups[1].warnings, [])
+        XCTAssertTrue(groups[0].id.hasPrefix("media-photo_20260115_"))
+        XCTAssertTrue(groups[1].id.hasPrefix("media-video_20260115_"))
+    }
+
+    func testMediaKindGroupIDsDoNotDependOnInputOrder() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let assets = [
+            evidenceAsset(id: "video-b", date: start.addingTimeInterval(60), kind: .video, hasLocation: true),
+            evidenceAsset(id: "video-a", date: start, kind: .video, hasLocation: true),
+        ]
+
+        let forward = MediaKindGrouper().group(assets, localDate: "2026-01-15")
+        let reversed = MediaKindGrouper().group(Array(assets.reversed()), localDate: "2026-01-15")
+
+        XCTAssertEqual(forward, reversed)
+        XCTAssertEqual(forward.map(\.mediaKind), [.video])
+    }
+
+    private func evidenceAsset(
+        id: String,
+        date: Date,
+        kind: MediaKind,
+        hasLocation: Bool
+    ) -> EvidenceAsset {
+        EvidenceAsset(
+            id: id,
+            capturedAt: date,
+            mediaKind: kind,
+            durationSeconds: kind == .video ? 10 : 0,
+            pixelWidth: 100,
+            pixelHeight: 100,
+            hasLocation: hasLocation,
+            publicFilename: kind == .video ? "VID_0001.MOV" : "IMG_0001.HEIC"
+        )
+    }
 }
