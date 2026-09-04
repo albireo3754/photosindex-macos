@@ -137,6 +137,18 @@ make install
 The install script copies the CLI to `~/.local/bin/photosindex` and the app to
 `~/Applications/PhotosIndex.app`.
 
+## Human App Workflow
+
+Open `PhotosIndex.app`, grant Photos access when prompted, choose a date using
+the **Calendar date (Asia/Seoul)** picker, and select **Index Date**. Browse the
+result with fine, coarse, or media-kind grouping, then select an ordinal group
+to view its time range, counts, and limited asset metadata. Limited Photos
+access indexes only the items selected in macOS privacy settings.
+
+This first human UI is read-only. Evidence generation, classification,
+decision validation, export, and verified move remain CLI/agent-only workflows;
+the app browser exposes no export, move, or delete controls.
+
 ## CLI Quick Start
 
 Show app, protocol, and Photos permission status:

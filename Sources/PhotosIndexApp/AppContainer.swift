@@ -14,13 +14,31 @@ final class AppContainer: ObservableObject {
 
     init() {
         let socketPath = "/tmp/photosindex-\(getuid()).sock"
-        let permission = Self.permissionName(PHPhotoLibrary.authorizationStatus(for: .readWrite))
-        viewModel = AppViewModel(permissionStatus: permission, socketPath: socketPath)
-        host = UnixCommandHost(path: socketPath)
-        runtime = IndexRuntime(
+        let authorizationStatus: @Sendable () -> String = {
+            Self.permissionName(PHPhotoLibrary.authorizationStatus(for: .readWrite))
+        }
+        let permission = authorizationStatus()
+        let requestAuthorization: @Sendable () -> String = {
+            Self.requestPhotosAuthorizationSynchronously()
+        }
+        let runtime = IndexRuntime(
             library: PhotoKitLibrary(),
-            timezone: TimeZone(identifier: "Asia/Seoul") ?? .current
+            timezone: TimeZone(identifier: "Asia/Seoul")!
         )
+        let service = HumanWorkflowService(
+            runtime: runtime,
+            authorizationStatus: authorizationStatus,
+            requestAuthorization: requestAuthorization
+        )
+        let viewModel = AppViewModel(
+            permissionStatus: permission,
+            socketPath: socketPath,
+            selectedDate: Date(),
+            service: service
+        )
+        self.viewModel = viewModel
+        host = UnixCommandHost(path: socketPath)
+        self.runtime = runtime
         let evidenceInspectionService = EvidenceInspectionService()
         let exportRoot = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs/Naver Clip", isDirectory: true)
@@ -36,11 +54,12 @@ final class AppContainer: ObservableObject {
         )
         router = AppCommandRouter(
             runtime: runtime,
-            permission: {
-                Self.permissionName(PHPhotoLibrary.authorizationStatus(for: .readWrite))
-            },
-            requestAuthorization: {
-                Self.requestPhotosAuthorizationSynchronously()
+            permission: authorizationStatus,
+            requestAuthorization: requestAuthorization,
+            externalSyncDidComplete: { [weak viewModel] commit in
+                Task { @MainActor [weak viewModel] in
+                    viewModel?.externalSyncDidComplete(commit)
+                }
             },
             inspectEvidence: { runID, group, assets, output, samples, page in
                 try evidenceInspectionService.inspect(
