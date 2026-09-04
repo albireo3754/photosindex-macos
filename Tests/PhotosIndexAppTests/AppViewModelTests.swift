@@ -11,7 +11,6 @@ final class AppViewModelTests: XCTestCase {
 
         XCTAssertEqual(model.permissionStatus, "authorized")
         XCTAssertEqual(model.socketPath, "/tmp/photosindex-synthetic.sock")
-        XCTAssertEqual(model.title, "PhotosIndex")
         XCTAssertEqual(model.selectedLevel, .fine)
         XCTAssertNil(model.syncResult)
         XCTAssertTrue(model.groups.isEmpty)
@@ -148,8 +147,8 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertNil(model.selectedGroupID)
         XCTAssertNil(model.selectedGroupDetail)
         XCTAssertNil(model.lastError)
-        XCTAssertTrue(model.isLoadingGroupDetail)
-        XCTAssertTrue(model.isBusy)
+        XCTAssertFalse(model.isLoadingGroupDetail)
+        XCTAssertFalse(model.isBusy)
 
         await fixture.service.releaseGroupDetail()
         await loadingDetail.value
@@ -158,6 +157,34 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertTrue(model.groups.isEmpty)
         XCTAssertNil(model.selectedGroupID)
         XCTAssertNil(model.selectedGroupDetail)
+        XCTAssertFalse(model.isLoadingGroupDetail)
+        XCTAssertFalse(model.isBusy)
+    }
+
+    func testClearingSelectionWhileGroupDetailIsBlockedDiscardsLateResult() async {
+        let fixture = makeFixture(blockGroupDetail: true)
+        let model = makeViewModel(service: fixture.service)
+        await model.indexSelectedDate()
+        let loadingDetail = Task { await model.selectGroup(fixture.fineGroup.id) }
+        await fixture.service.waitForGroupDetailStart()
+
+        XCTAssertEqual(model.selectedGroupID, fixture.fineGroup.id)
+        XCTAssertTrue(model.isLoadingGroupDetail)
+
+        model.clearGroupSelection()
+
+        XCTAssertNil(model.selectedGroupID)
+        XCTAssertNil(model.selectedGroupDetail)
+        XCTAssertNil(model.lastError)
+        XCTAssertFalse(model.isLoadingGroupDetail)
+        XCTAssertFalse(model.isBusy)
+
+        await fixture.service.releaseGroupDetail()
+        await loadingDetail.value
+
+        XCTAssertNil(model.selectedGroupID)
+        XCTAssertNil(model.selectedGroupDetail)
+        XCTAssertNil(model.lastError)
         XCTAssertFalse(model.isLoadingGroupDetail)
         XCTAssertFalse(model.isBusy)
     }
@@ -401,6 +428,11 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertNil(model.selectedGroupDetail)
         XCTAssertFalse(model.lastError?.contains(fixture.fineGroup.id) ?? true)
         XCTAssertFalse(model.lastError?.contains("/private/") ?? true)
+
+        model.clearGroupSelection()
+        XCTAssertNil(model.selectedGroupID)
+        XCTAssertNil(model.selectedGroupDetail)
+        XCTAssertNil(model.lastError)
 
         await model.selectGroup(fixture.fineGroup.id)
         XCTAssertEqual(model.selectedGroupDetail, fixture.fineDetail)

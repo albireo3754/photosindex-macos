@@ -2,20 +2,70 @@ import Foundation
 import PhotosIndexCore
 import SwiftUI
 
+enum HumanBrowserPresentationState: Equatable {
+    case setup
+    case authorizationNeeded
+    case blocked
+    case loading
+    case noResults
+    case browser
+    case error
+
+    static func resolve(
+        permissionStatus: String,
+        busyPhase: ManualQABusyPhase?,
+        hasIndex: Bool,
+        groupCount: Int,
+        hasSelection: Bool,
+        hasError: Bool
+    ) -> Self {
+        if busyPhase != nil {
+            if groupCount > 0 {
+                return .browser
+            }
+            return .loading
+        }
+
+        switch normalizedPhotoPermissionStatus(permissionStatus) {
+        case "not-determined", "unknown":
+            return .authorizationNeeded
+        case "denied", "restricted":
+            return .blocked
+        default:
+            break
+        }
+
+        if hasError {
+            return groupCount > 0 && hasSelection ? .browser : .error
+        }
+
+        guard hasIndex else { return .setup }
+        return groupCount > 0 ? .browser : .noResults
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var viewModel: AppViewModel
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        NavigationSplitView {
-            HumanBrowserSidebar(viewModel: viewModel)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
-        } content: {
-            CaptureGroupListView(viewModel: viewModel)
-                .navigationSplitViewColumnWidth(min: 280, ideal: 340, max: 440)
-        } detail: {
-            CaptureGroupDetailView(viewModel: viewModel)
+        VStack(spacing: 0) {
+            if presentationState == .browser {
+                NavigationSplitView {
+                    CaptureGroupListView(viewModel: viewModel)
+                        .navigationSplitViewColumnWidth(min: 340, ideal: 380, max: 460)
+                } detail: {
+                    CaptureGroupDetailView(viewModel: viewModel)
+                }
+                .navigationSplitViewStyle(.balanced)
+            } else {
+                HumanBrowserWorkspace(
+                    viewModel: viewModel,
+                    presentationState: presentationState
+                )
+            }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier(ManualQAElement.workspace.rawValue)
         .accessibilityLabel("PhotosIndex browser")
         .accessibilityValue(viewModel.manualQAState.accessibilityValue)
@@ -26,109 +76,32 @@ struct ContentView: View {
             }
         }
     }
+
+    private var presentationState: HumanBrowserPresentationState {
+        HumanBrowserPresentationState.resolve(
+            permissionStatus: viewModel.permissionStatus,
+            busyPhase: viewModel.manualQAState.busyPhase,
+            hasIndex: viewModel.syncResult != nil,
+            groupCount: viewModel.groups.count,
+            hasSelection: viewModel.selectedGroupID != nil,
+            hasError: viewModel.lastError != nil
+        )
+    }
 }
 
-struct HumanBrowserSidebar: View {
+struct HumanBrowserWorkspace: View {
     @ObservedObject var viewModel: AppViewModel
+    let presentationState: HumanBrowserPresentationState
     @State private var isAgentConnectionExpanded = false
 
     var body: some View {
-        List {
-            Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Index one calendar day locally.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("Browse groups and safe metadata.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            Section {
-                LabeledContent("Status", value: permissionLabel)
-                    .frame(maxWidth: .infinity)
-                    .accessibilityIdentifier(ManualQAElement.permissionStatus.rawValue)
-                    .accessibilityLabel("Photos permission")
-                    .accessibilityValue("status=\(permissionStatus)")
-
-                permissionGuidance
-            } header: {
-                Text("Photos access")
-                    .font(.headline)
-            }
-
-            Section {
-                workflowStatus
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } header: {
-                Text("Status")
-                    .font(.headline)
-            }
-
-            Section {
-                DisclosureGroup(isExpanded: $isAgentConnectionExpanded) {
-                    Text("Local agents can connect while PhotosIndex is open. The connection is private to this macOS account.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } label: {
-                    Label("Agent connection", systemImage: "point.3.connected.trianglepath.dotted")
-                }
-                .accessibilityIdentifier(ManualQAElement.agentConnectionDisclosure.rawValue)
-                .accessibilityValue("state=\(isAgentConnectionExpanded ? "expanded" : "collapsed")")
-                .disabled(viewModel.isBusy)
-            }
+        VStack(alignment: .leading, spacing: 24) {
+            workspaceContent
+            privacyDisclosure
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
-                Divider()
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Calendar date (Asia/Seoul)")
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    DatePicker(
-                        "Calendar date (Asia/Seoul)",
-                        selection: selectedDate,
-                        displayedComponents: .date
-                    )
-                    .labelsHidden()
-                    .environment(\.timeZone, TimeZone(identifier: "Asia/Seoul")!)
-                    .accessibilityIdentifier(ManualQAElement.datePicker.rawValue)
-                    .accessibilityLabel("Calendar date (Asia/Seoul)")
-                    .disabled(viewModel.isBusy)
-
-                    if canRequestPhotosAccess {
-                        Button("Request Photos Access", action: requestPhotosAccess)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityIdentifier(ManualQAElement.requestPhotosAccessButton.rawValue)
-                            .disabled(viewModel.isBusy)
-                    } else if canRefreshPhotosAccess {
-                        Button("Refresh Access", action: refreshPhotosAccess)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityIdentifier(ManualQAElement.refreshPhotosAccessButton.rawValue)
-                            .disabled(viewModel.isBusy)
-                    }
-
-                    if canIndex {
-                        Button("Index Date", action: indexSelectedDate)
-                            .frame(maxWidth: .infinity)
-                            .buttonStyle(.borderedProminent)
-                            .accessibilityIdentifier(ManualQAElement.indexDateButton.rawValue)
-                            .disabled(viewModel.isBusy || !canIndex)
-                    }
-                }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .navigationTitle(viewModel.title)
+        .padding(40)
+        .frame(maxWidth: 540)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var selectedDate: Binding<Date> {
@@ -142,33 +115,12 @@ struct HumanBrowserSidebar: View {
         normalizedPhotoPermissionStatus(viewModel.permissionStatus)
     }
 
-    private var permissionLabel: String {
-        switch permissionStatus {
-        case "authorized": "Full access"
-        case "limited": "Limited access"
-        case "denied": "Access denied"
-        case "restricted": "Access restricted"
-        case "not-determined": "Not requested"
-        default: "Unknown"
-        }
-    }
-
     private var canRequestPhotosAccess: Bool {
         permissionStatus == "not-determined" || permissionStatus == "unknown"
     }
 
-    private var canRefreshPhotosAccess: Bool {
-        permissionStatus == "denied" || permissionStatus == "restricted"
-    }
-
     private var canIndex: Bool {
         permissionStatus == "authorized" || permissionStatus == "limited"
-    }
-
-    private func requestPhotosAccess() {
-        Task {
-            await viewModel.requestPhotosAccess()
-        }
     }
 
     private func indexSelectedDate() {
@@ -179,92 +131,303 @@ struct HumanBrowserSidebar: View {
     }
 
     @ViewBuilder
-    private var permissionGuidance: some View {
-        switch permissionStatus {
-        case "denied":
-            refreshAccessGuidance(
-                "Open System Settings, choose Privacy & Security, then Photos, and allow PhotosIndex.",
-                systemImage: "gear",
-                state: "denied"
-            )
-        case "restricted":
-            refreshAccessGuidance(
-                "Photos access is restricted by this Mac or account. Ask the device administrator to allow it.",
-                systemImage: "lock",
-                state: "restricted"
-            )
-        case "limited":
-            Label {
-                Text("Only selected Photos items can be indexed. Change the selection in Photos privacy settings if needed.")
+    private var workspaceContent: some View {
+        switch presentationState {
+        case .loading:
+            VStack(alignment: .center, spacing: 16) {
+                ProgressView()
+                    .controlSize(.large)
+                    .accessibilityLabel(busyLabel)
+                    .accessibilityIdentifier(ManualQAElement.sidebarStatus.rawValue)
+                    .accessibilityValue("state=\(busyState)")
+
+                Text(busyLabel)
+                    .font(.headline)
+                    .accessibilityIdentifier(ManualQAElement.groupListStatus.rawValue)
+                    .accessibilityValue("state=\(busyState)")
+
+                Text("This can take a moment. Your library is not changed.")
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-            } icon: {
-                Image(systemName: "exclamationmark.triangle")
             }
-            .foregroundStyle(.orange)
-            .accessibilityIdentifier(ManualQAElement.permissionGuidance.rawValue)
-            .accessibilityValue("state=limited")
-        default:
+            .frame(maxWidth: .infinity, minHeight: 220, alignment: .center)
+        case .error:
+            errorWorkspace
+        case .blocked:
+            blockedWorkspace
+        case .authorizationNeeded:
+            authorizationWorkspace
+        case .noResults:
+            noResultsWorkspace
+        case .setup:
+            setupWorkspace
+        case .browser:
             EmptyView()
         }
     }
 
-    private func refreshAccessGuidance(
-        _ message: String,
-        systemImage: String,
-        state: String
-    ) -> some View {
-        Label {
-            Text(message)
-                .fixedSize(horizontal: false, vertical: true)
-        } icon: {
-            Image(systemName: systemImage)
+    private var setupWorkspace: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 44))
+                .foregroundStyle(.tint)
+                .accessibilityHidden(true)
+            Text("Browse a day in your library")
+                .font(.largeTitle.weight(.semibold))
+            Text("Choose a calendar day to gather its capture groups. You can then browse the times, media kinds, and other safe metadata for that day.")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+            limitedAccessBanner
+            datePicker
+            Button(action: indexSelectedDate) {
+                Text(indexActionTitle)
+                    .frame(maxWidth: .infinity)
+            }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier(ManualQAElement.indexDateButton.rawValue)
+                .disabled(!canIndex)
+            Text("Browsing is read-only. Nothing is changed in Photos.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(ManualQAElement.sidebarStatus.rawValue)
+                .accessibilityValue("state=not-indexed;groups=0")
         }
-        .foregroundStyle(.secondary)
-        .accessibilityIdentifier(ManualQAElement.permissionGuidance.rawValue)
-        .accessibilityValue("state=\(state)")
+    }
+
+    private var authorizationWorkspace: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Allow Photos access", systemImage: "photo.badge.plus")
+                .font(.title2)
+                .accessibilityIdentifier(ManualQAElement.permissionStatus.rawValue)
+                .accessibilityValue("status=\(permissionStatus)")
+            Text("Photos access is needed to index the calendar day you choose.")
+                .foregroundStyle(.secondary)
+            datePicker
+            Button(action: requestPhotosAccess) {
+                Text("Allow Photos Access")
+                    .frame(maxWidth: .infinity)
+            }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier(ManualQAElement.requestPhotosAccessButton.rawValue)
+        }
+    }
+
+    private var blockedWorkspace: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label(blockedTitle, systemImage: permissionStatus == "denied" ? "hand.raised" : "lock")
+                .font(.title2)
+                .accessibilityIdentifier(ManualQAElement.permissionStatus.rawValue)
+                .accessibilityValue("status=\(permissionStatus)")
+            Text(blockedMessage)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(ManualQAElement.permissionGuidance.rawValue)
+                .accessibilityValue("state=\(permissionStatus)")
+            datePicker
+            Button(action: refreshPhotosAccess) {
+                Text("Refresh Photos Access")
+                    .frame(maxWidth: .infinity)
+            }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier(ManualQAElement.refreshPhotosAccessButton.rawValue)
+        }
+    }
+
+    private var noResultsWorkspace: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("No capture groups", systemImage: "tray")
+                .font(.title2)
+            Text("No Photos items matched this calendar day and grouping.")
+                .foregroundStyle(.secondary)
+            limitedAccessBanner
+            datePicker
+            groupingPicker
+            Text("Groups use capture time and approximate proximity. They are browsing cohorts, not event labels.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Button(action: indexSelectedDate) {
+                Text(reindexActionTitle)
+                    .frame(maxWidth: .infinity)
+            }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier(ManualQAElement.indexDateButton.rawValue)
+                .disabled(!canIndex)
+            VStack(alignment: .leading) {
+                Text("No groups found for this grouping level.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier(ManualQAElement.sidebarStatus.rawValue)
+                    .accessibilityValue("state=no-groups;level=\(viewModel.selectedLevel.rawValue);groups=0")
+            }
+            .accessibilityIdentifier(ManualQAElement.groupListStatus.rawValue)
+            .accessibilityValue("state=no-groups;level=\(viewModel.selectedLevel.rawValue);groups=0")
+        }
+    }
+
+    private var errorWorkspace: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Try again", systemImage: "exclamationmark.circle")
+                .font(.title2)
+                .foregroundStyle(.red)
+            Text("PhotosIndex couldn’t complete the request. Please try again.")
+                .foregroundStyle(.secondary)
+            datePicker
+            if canIndex {
+                Button(action: indexSelectedDate) {
+                    Text("Retry Indexing")
+                        .frame(maxWidth: .infinity)
+                }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier(ManualQAElement.indexDateButton.rawValue)
+            } else {
+                Button(action: refreshPhotosAccess) {
+                    Text("Refresh Photos Access")
+                        .frame(maxWidth: .infinity)
+                }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier(ManualQAElement.refreshPhotosAccessButton.rawValue)
+            }
+            Text("The request needs another try.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(ManualQAElement.sidebarStatus.rawValue)
+                .accessibilityValue("state=error")
+        }
+    }
+
+    private var datePicker: some View {
+        GroupBox {
+            DatePicker(
+                "Calendar day",
+                selection: selectedDate,
+                displayedComponents: .date
+            )
+            .datePickerStyle(.field)
+            .labelsHidden()
+            .environment(\.timeZone, TimeZone(identifier: "Asia/Seoul")!)
+            .frame(width: 220, alignment: .leading)
+            .accessibilityIdentifier(ManualQAElement.datePicker.rawValue)
+            .accessibilityLabel("Calendar date (Asia/Seoul)")
+            .disabled(viewModel.isBusy)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Calendar day")
+                    .font(.headline)
+                Text("Asia/Seoul time")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var groupingPicker: some View {
+        Picker("Grouping", selection: selectedLevel) {
+            Text("Fine").tag(GroupLevel.fine)
+            Text("Coarse").tag(GroupLevel.coarse)
+            Text("Media kind").tag(GroupLevel.mediaKind)
+        }
+        .pickerStyle(.segmented)
+        .accessibilityIdentifier(ManualQAElement.groupLevelPicker.rawValue)
+        .accessibilityValue("level=\(viewModel.selectedLevel.rawValue)")
+        .disabled(viewModel.isBusy || viewModel.syncResult == nil)
+    }
+
+    @ViewBuilder
+    private var limitedAccessBanner: some View {
+        if permissionStatus == "limited" {
+            VStack(alignment: .leading) {
+                Label("Only selected Photos items can be indexed. Change the selection in Photos privacy settings if needed.", systemImage: "exclamationmark.triangle")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                    .accessibilityIdentifier(ManualQAElement.permissionGuidance.rawValue)
+                    .accessibilityValue("state=limited")
+            }
+            .accessibilityIdentifier(ManualQAElement.permissionStatus.rawValue)
+            .accessibilityValue("status=limited")
+        }
+    }
+
+    private var selectedLevel: Binding<GroupLevel> {
+        Binding(
+            get: { viewModel.selectedLevel },
+            set: { level in
+                Task {
+                    await viewModel.selectLevel(level)
+                }
+            }
+        )
+    }
+
+    private var blockedTitle: String {
+        permissionStatus == "denied" ? "Photos access is off" : "Photos access is restricted"
+    }
+
+    private var blockedMessage: String {
+        if permissionStatus == "denied" {
+            "Open System Settings, choose Privacy & Security, then Photos, and allow PhotosIndex."
+        } else {
+            "Photos access is restricted by this Mac or account. Ask the device administrator to allow it."
+        }
+    }
+
+    private var indexActionTitle: String {
+        "Browse \(selectedDay)"
+    }
+
+    private var reindexActionTitle: String {
+        "Re-index \(selectedDay)"
+    }
+
+    private var selectedDay: String {
+        Self.selectedDayFormatter.string(from: viewModel.selectedDate)
+    }
+
+    private static let selectedDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Asia/Seoul")!
+        formatter.dateFormat = "MMMM d, yyyy"
+        return formatter
+    }()
+
+    private var privacyDisclosure: some View {
+        DisclosureGroup(isExpanded: $isAgentConnectionExpanded) {
+            Text("PhotosIndex lets you review calendar-day groups without showing your photos or changing your library.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } label: {
+            Label("Your library stays private", systemImage: "lock")
+        }
+        .accessibilityIdentifier(ManualQAElement.agentConnectionDisclosure.rawValue)
+        .accessibilityValue("state=\(isAgentConnectionExpanded ? "expanded" : "collapsed")")
+        .disabled(viewModel.isBusy)
+    }
+
+    private func requestPhotosAccess() {
+        Task {
+            await viewModel.requestPhotosAccess()
+        }
     }
 
     private func refreshPhotosAccess() {
         Task {
             await viewModel.refreshPhotosAccess()
-        }
-    }
-
-    @ViewBuilder
-    private var workflowStatus: some View {
-        if viewModel.isBusy {
-            ProgressView(busyLabel)
-                .accessibilityIdentifier(ManualQAElement.sidebarStatus.rawValue)
-                .accessibilityValue("state=\(busyState)")
-        } else if viewModel.lastError != nil {
-            Label("PhotosIndex couldn’t complete the request. Please try again.", systemImage: "exclamationmark.circle")
-                .fixedSize(horizontal: false, vertical: true)
-                .foregroundStyle(.red)
-                .accessibilityIdentifier(ManualQAElement.sidebarStatus.rawValue)
-                .accessibilityValue("state=error")
-        } else if let syncResult = viewModel.syncResult {
-            if viewModel.groups.isEmpty {
-                Label("No groups found for this grouping level.", systemImage: "tray")
-                    .fixedSize(horizontal: false, vertical: true)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier(ManualQAElement.sidebarStatus.rawValue)
-                    .accessibilityValue("state=no-groups;level=\(viewModel.selectedLevel.rawValue);groups=0")
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    LabeledContent("Indexed assets", value: "\(syncResult.assetCount)")
-                    LabeledContent("Groups", value: "\(viewModel.groups.count)")
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier(ManualQAElement.workflowState.rawValue)
-                .accessibilityValue(
-                    "state=indexed;level=\(viewModel.selectedLevel.rawValue);assets=\(syncResult.assetCount);groups=\(viewModel.groups.count)"
-                )
-            }
-        } else {
-            Label("No date indexed yet.", systemImage: "calendar.badge.clock")
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier(ManualQAElement.sidebarStatus.rawValue)
-                .accessibilityValue("state=not-indexed;groups=0")
         }
     }
 
@@ -285,31 +448,94 @@ struct HumanBrowserSidebar: View {
 
 struct CaptureGroupListView: View {
     @ObservedObject var viewModel: AppViewModel
+    @State private var isPrivacyDisclosureExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 10) {
-                Picker("Grouping", selection: selectedLevel) {
-                    Text("Fine").tag(GroupLevel.fine)
-                    Text("Coarse").tag(GroupLevel.coarse)
-                    Text("Media kind").tag(GroupLevel.mediaKind)
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier(ManualQAElement.groupLevelPicker.rawValue)
-                .accessibilityValue("level=\(viewModel.selectedLevel.rawValue)")
-                .disabled(viewModel.isBusy || viewModel.syncResult == nil)
-
-                Text("Groups use capture time and approximate proximity. They are browsing cohorts, not event labels.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            .padding()
+            groupListHeader
 
             Divider()
 
             groupContent
         }
-        .navigationTitle("Capture groups")
+    }
+
+    private var groupListHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Capture groups")
+                    .font(.headline)
+                Spacer()
+                Button("Re-index", action: indexSelectedDate)
+                    .accessibilityIdentifier(ManualQAElement.indexDateButton.rawValue)
+                    .disabled(viewModel.isBusy)
+            }
+
+            DatePicker("Date", selection: selectedDate, displayedComponents: .date)
+                .datePickerStyle(.compact)
+                .environment(\.timeZone, TimeZone(identifier: "Asia/Seoul")!)
+                .accessibilityIdentifier(ManualQAElement.datePicker.rawValue)
+                .accessibilityLabel("Calendar date (Asia/Seoul)")
+                .disabled(viewModel.isBusy)
+
+            if viewModel.permissionStatus == "limited" {
+                limitedAccessBanner
+            }
+
+            if let syncResult = viewModel.syncResult {
+                LabeledContent("Indexed", value: "\(syncResult.assetCount) assets · \(viewModel.groups.count) groups")
+                    .font(.callout)
+                    .accessibilityIdentifier(ManualQAElement.workflowState.rawValue)
+                    .accessibilityValue(
+                        "state=indexed;level=\(viewModel.selectedLevel.rawValue);assets=\(syncResult.assetCount);groups=\(viewModel.groups.count)"
+                    )
+            }
+
+            Picker("Grouping", selection: selectedLevel) {
+                Text("Fine").tag(GroupLevel.fine)
+                Text("Coarse").tag(GroupLevel.coarse)
+                Text("Media kind").tag(GroupLevel.mediaKind)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier(ManualQAElement.groupLevelPicker.rawValue)
+            .accessibilityValue("level=\(viewModel.selectedLevel.rawValue)")
+            .disabled(viewModel.isBusy || viewModel.syncResult == nil)
+
+            Text("Groups use capture time and approximate proximity. They are browsing cohorts, not event labels.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            DisclosureGroup(isExpanded: $isPrivacyDisclosureExpanded) {
+                Text("PhotosIndex lets you review calendar-day groups without showing your photos or changing your library.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } label: {
+                Label("Your library stays private", systemImage: "lock")
+            }
+            .accessibilityIdentifier(ManualQAElement.agentConnectionDisclosure.rawValue)
+            .accessibilityValue("state=\(isPrivacyDisclosureExpanded ? "expanded" : "collapsed")")
+            .disabled(viewModel.isBusy)
+        }
+        .padding()
+    }
+
+    private var selectedDate: Binding<Date> {
+        Binding(
+            get: { viewModel.selectedDate },
+            set: { viewModel.selectDate($0) }
+        )
+    }
+
+    private var limitedAccessBanner: some View {
+        VStack(alignment: .leading) {
+            Label("Only selected Photos items can be indexed. Change the selection in Photos privacy settings if needed.", systemImage: "exclamationmark.triangle")
+                .font(.callout)
+                .foregroundStyle(.orange)
+                .accessibilityIdentifier(ManualQAElement.permissionGuidance.rawValue)
+                .accessibilityValue("state=limited")
+        }
+        .accessibilityIdentifier(ManualQAElement.permissionStatus.rawValue)
+        .accessibilityValue("status=limited")
     }
 
     private var selectedLevel: Binding<GroupLevel> {
@@ -327,34 +553,15 @@ struct CaptureGroupListView: View {
     private var groupContent: some View {
         if viewModel.isIndexing || viewModel.isLoadingGroups {
             centeredProgress("Loading capture groups…", state: "loading-groups")
-        } else if viewModel.syncResult == nil {
-            ContentUnavailableView(
-                "Index a date",
-                systemImage: "calendar",
-                description: Text("Choose a calendar date in the sidebar, then select Index Date.")
-            )
-            .accessibilityIdentifier(ManualQAElement.groupListStatus.rawValue)
-            .accessibilityValue("state=not-indexed;groups=0")
-        } else if viewModel.groups.isEmpty {
-            ContentUnavailableView(
-                "No capture groups",
-                systemImage: "tray",
-                description: Text("No Photos items matched this date and grouping level.")
-            )
-            .accessibilityIdentifier(ManualQAElement.groupListStatus.rawValue)
-            .accessibilityValue("state=no-groups;level=\(viewModel.selectedLevel.rawValue);groups=0")
         } else {
-            List {
+            List(selection: selectedGroupID) {
                 ForEach(Array(viewModel.groups.enumerated()), id: \.element.id) { index, group in
                     CaptureGroupRow(
                         group: group,
                         ordinal: index + 1,
                         isSelected: viewModel.selectedGroupID == group.id
-                    ) {
-                        Task {
-                            await viewModel.selectGroup(group.id)
-                        }
-                    }
+                    )
+                    .tag(group.id)
                     .disabled(viewModel.isBusy)
                 }
             }
@@ -372,51 +579,60 @@ struct CaptureGroupListView: View {
             .accessibilityIdentifier(ManualQAElement.groupListStatus.rawValue)
             .accessibilityValue("state=\(state)")
     }
+
+    private var selectedGroupID: Binding<String?> {
+        Binding(
+            get: { viewModel.selectedGroupID },
+            set: { id in
+                guard let id else {
+                    viewModel.clearGroupSelection()
+                    return
+                }
+                Task {
+                    await viewModel.selectGroup(id)
+                }
+            }
+        )
+    }
+
+    private func indexSelectedDate() {
+        guard !viewModel.isBusy else { return }
+        Task {
+            await viewModel.indexSelectedDate()
+        }
+    }
 }
 
 private struct CaptureGroupRow: View {
     let group: CaptureGroup
     let ordinal: Int
     let isSelected: Bool
-    let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 7) {
-                HStack {
-                    Text("Group \(ordinal)")
-                        .font(.headline)
-                    Spacer()
-                    if let mediaKind = group.mediaKind {
-                        Text(mediaKind.displayName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("Group \(ordinal)")
+                    .font(.headline)
+                Spacer()
+                if let mediaKind = group.mediaKind {
+                    Text(mediaKind.displayName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+            }
 
-                Text(HumanBrowserFormatting.timeRange(start: group.start, end: group.end))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-
-                HStack(spacing: 14) {
-                    Label("\(group.assetIDs.count) assets", systemImage: "photo.on.rectangle")
-                    Label("\(group.warnings.count) warnings", systemImage: "exclamationmark.triangle")
-                }
-                .font(.caption)
+            Text(HumanBrowserFormatting.timeRange(start: group.start, end: group.end))
+                .font(.callout)
                 .foregroundStyle(.secondary)
+
+            HStack(spacing: 14) {
+                Label("\(group.assetIDs.count) assets", systemImage: "photo.on.rectangle")
+                Label("\(group.warnings.count) warnings", systemImage: "exclamationmark.triangle")
             }
-            .padding(.vertical, 5)
-            .padding(.horizontal, 7)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(Color.accentColor.opacity(0.14))
-                }
-            }
-            .contentShape(Rectangle())
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 5)
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("\(ManualQAElement.groupRow.rawValue).\(ordinal)")
         .accessibilityLabel(accessibilityLabel)
@@ -451,11 +667,13 @@ struct CaptureGroupDetailView: View {
                     .accessibilityValue("state=loading-detail")
             } else if let detail = viewModel.selectedGroupDetail {
                 detailList(detail)
+            } else if viewModel.lastError != nil, viewModel.selectedGroupID != nil {
+                detailError
             } else {
                 ContentUnavailableView(
                     "Select a group",
                     systemImage: "rectangle.stack",
-                    description: Text("Choose an ordinal group from the middle column to see its safe metadata.")
+                    description: Text("Choose an ordinal group from the group list to see its safe metadata.")
                 )
                 .accessibilityIdentifier(ManualQAElement.groupDetailStatus.rawValue)
                 .accessibilityValue("state=no-selection;assets=0;warnings=0")
@@ -476,6 +694,28 @@ struct CaptureGroupDetailView: View {
             return nil
         }
         return index + 1
+    }
+
+    private var detailError: some View {
+        ContentUnavailableView {
+            Label("Couldn’t load this group", systemImage: "exclamationmark.circle")
+        } description: {
+            Text("PhotosIndex couldn’t load the group’s safe metadata. Please try again.")
+        } actions: {
+            Button("Retry", action: retrySelectedGroup)
+                .buttonStyle(.borderedProminent)
+        }
+        .accessibilityIdentifier(ManualQAElement.groupDetailStatus.rawValue)
+        .accessibilityValue("state=error")
+    }
+
+    private func retrySelectedGroup() {
+        guard let selectedGroupID = viewModel.selectedGroupID,
+              !viewModel.isBusy
+        else { return }
+        Task {
+            await viewModel.selectGroup(selectedGroupID)
+        }
     }
 
     private func detailList(_ detail: GroupDetailPayload) -> some View {

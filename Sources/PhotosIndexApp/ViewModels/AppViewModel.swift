@@ -3,8 +3,6 @@ import PhotosIndexCore
 
 @MainActor
 final class AppViewModel: ObservableObject {
-    let title = "PhotosIndex"
-
     @Published var permissionStatus: String
     @Published var socketPath: String
     @Published var lastError: String?
@@ -213,7 +211,11 @@ final class AppViewModel: ObservableObject {
         selectedGroupDetail = nil
         lastError = nil
         isLoadingGroupDetail = true
-        defer { isLoadingGroupDetail = false }
+        defer {
+            if revision == stateRevision {
+                isLoadingGroupDetail = false
+            }
+        }
 
         do {
             let detail = try await service.groupDetail(
@@ -237,6 +239,13 @@ final class AppViewModel: ObservableObject {
                 lastError = "PhotosIndex couldn’t load that group. Please try again."
             }
         }
+    }
+
+    func clearGroupSelection() {
+        stateRevision &+= 1
+        clearSelectedGroup()
+        lastError = nil
+        isLoadingGroupDetail = false
     }
 
     private var canIndex: Bool {
@@ -270,6 +279,7 @@ final class AppViewModel: ObservableObject {
 
     private func invalidateIndexedState() {
         stateRevision &+= 1
+        isLoadingGroupDetail = false
         clearIndexedState()
     }
 
