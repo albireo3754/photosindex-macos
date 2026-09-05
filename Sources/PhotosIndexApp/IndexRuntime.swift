@@ -149,6 +149,24 @@ final class IndexRuntime: @unchecked Sendable {
         return try groupLocked(id: id)
     }
 
+    func asset(id: String, groupID: String, expectedRunID: String) throws -> PhotoAsset? {
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
+        try validateExpectedRunLocked(expectedRunID)
+        if let group = mediaKindGroups.first(where: { $0.id == groupID }) {
+            return group.assetIDs.contains(id) ? indexedAssets[id] : nil
+        }
+        for session in sessions {
+            if session.id == groupID {
+                return session.assetIDs.contains(id) ? indexedAssets[id] : nil
+            }
+            if let segment = session.segments.first(where: { $0.id == groupID }) {
+                return segment.assetIDs.contains(id) ? indexedAssets[id] : nil
+            }
+        }
+        throw IndexRuntimeError.groupNotFound
+    }
+
     private func groupLocked(
         id: String
     ) throws -> (runID: String, group: CaptureGroup, assets: [PhotoAsset]) {

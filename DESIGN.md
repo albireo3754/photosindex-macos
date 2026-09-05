@@ -3,7 +3,7 @@
 ## Source of truth
 
 - Status: Active — approved redesign direction for the human SwiftUI browser.
-- Last refreshed: 2026-09-04.
+- Last refreshed: 2026-09-06.
 - Primary product surfaces: the macOS setup workspace, contextual Photos-permission states, indexed capture-group browser, and selected-group detail.
 - Evidence reviewed:
   - `CLAUDE.md` — module boundaries, privacy invariants, and read-only human UI boundary.
@@ -28,11 +28,11 @@
 - Goals:
   - Let a person choose one calendar day, index it, and browse its capture groups without distraction.
   - Make permission needs understandable at the moment they block progress.
-  - Preserve a safe, read-only browser that reveals only approved metadata.
+  - Let people recognize their captures through real thumbnails, large photo previews, and video playback without changing the library.
   - Make an indexed day easy to revisit through a simple group list and detail view.
 - Non-goals:
   - Do not add evidence, classification, export, move, or delete controls to the human UI.
-  - Do not show private identifiers, exact coordinates, transport details, OCR, filenames, hashes, previews, or decision data.
+  - Do not show private identifiers, exact coordinates, transport details, OCR, filenames, hashes, or decision data. Media previews are local viewing surfaces, not publishable evidence.
   - Do not make agent-facing capability a primary navigation concept.
 - Success signals:
   - Before indexing, the date picker and primary action are visible together without navigating empty columns.
@@ -61,7 +61,7 @@
 - Content hierarchy:
   1. Current date and actionable next step.
   2. Grouping control and group list, when groups exist.
-  3. Selected group’s time range, counts, warnings, and safe per-asset metadata.
+  3. Selected group’s thumbnail gallery; open a photo for a large preview or a video for native playback controls. Time, kind, and duration support recognition rather than dominate the gallery.
   4. Optional privacy disclosure.
 
 ## Design principles
@@ -80,7 +80,7 @@
 - Spacing/layout rhythm: use standard SwiftUI padding and control spacing. Constrain the pre-index/blocked setup workspace to 520–560 pt; let indexed columns use native split-view sizing.
 - Shape/radius/elevation: use native buttons, lists, column headers, banners, disclosure groups, and `ContentUnavailableView`; avoid branded cards, shadows, or bespoke container chrome.
 - Motion: use only system progress and standard SwiftUI transitions. State changes must not rely on animation to convey completion or failure.
-- Imagery/iconography: SF Symbols only, selected for the action or state (calendar, photos, access, warning, privacy). Do not show user media or generated previews in this browser.
+- Imagery/iconography: show actual Photos-managed thumbnails in a lazy gallery. Use SF Symbols for actions and loading/error placeholders, never as substitutes for loaded media.
 
 ## Components
 
@@ -92,6 +92,7 @@
   - Indexed two-column capture-group browser with date, re-index, and grouping controls in the group-list column header.
   - Zero-groups workspace containing date and grouping controls.
   - Human-language privacy disclosure labeled “Your library stays private,” retaining `photosindex.agent-connection`.
+  - Adaptive thumbnail gallery and a dismissible large viewer. Video uses native play, pause, and seek controls; never autoplay audio. Escape and a visible Close button dismiss the viewer.
 - Variants and states: permission needed, limited, denied, restricted, ready to index, indexing/loading, indexed, zero groups, selected group, no selected group, stale index, and request failure.
 - Token/component ownership: no custom design-system abstraction. Keep layout and styling local to native SwiftUI views.
 
@@ -103,6 +104,7 @@
 - Screen-reader semantics: give every state a concise heading, explanation, and available next action. Announce progress and errors through existing accessibility state values.
 - Stable manual-QA identifiers: preserve every current `photosindex.*` identifier and its semantic target: `photosindex.workspace`, `photosindex.workflow-state`, `photosindex.permission-status`, `photosindex.permission-guidance`, `photosindex.request-photos-access`, `photosindex.refresh-photos-access`, `photosindex.calendar-date`, `photosindex.index-date`, `photosindex.agent-connection`, `photosindex.group-level`, `photosindex.group-list`, `photosindex.group-row`, `photosindex.group-detail`, `photosindex.asset-list`, `photosindex.asset-row`, `photosindex.sidebar-status`, `photosindex.group-list-status`, and `photosindex.group-detail-status`.
 - Reduced motion and sensory considerations: honor system Reduce Motion; progress needs readable text, and alerts/banners must not flash or auto-dismiss before they can be read.
+- Media controls: `photosindex.asset-preview.<ordinal>` opens an item; `photosindex.media-viewer`, `photosindex.media-player`, `photosindex.media-close`, and `photosindex.media-retry` identify the viewer and its controls. Thumbnail/viewer accessibility values expose load states without media identifiers.
 
 ## Responsive behavior
 
@@ -115,14 +117,14 @@
 - Loading: replace unavailable content with labeled `ProgressView` states for access request, indexing, group loading, and detail loading; disable conflicting controls while busy.
 - Empty: before index, guide to date selection and indexing; after a successful index with zero groups, explain that no Photos items matched the selected date/grouping and retain date, grouping, and re-index controls.
 - Error: show a concise recovery message for request failure or stale index; preserve the relevant next action and never expose raw errors.
-- Success: after indexing, show group count/list; after selecting a group, show only safe metadata. No success state implies library modification.
+- Success: after indexing, show group count/list; after selecting a group, show real thumbnails with supporting metadata. Opening an item displays a large photo or playable video. No success state implies library modification.
 - Disabled: disable indexing until Photos access is readable and disable conflicting controls during an in-flight request.
-- Offline/slow network, if applicable: not applicable to the human browser. Do not add network status UI; any long-running local request must still expose textual progress.
+- Offline/slow network: PhotoKit may download iCloud-only media. Show labeled progress and recoverable failure with Retry; never claim a download percentage without measured progress. Closing a preview or changing its date/group/run cancels requests and stops playback.
 
 ## Content voice
 
 - Tone: calm, direct, and private.
-- Terminology: say “calendar day,” “capture groups,” “safe metadata,” and “Photos access.” Describe groups as browsing cohorts, never as inferred events or semantic classifications.
+- Terminology: say “calendar day,” “capture groups,” “photos and videos,” and “Photos access.” Describe groups as browsing cohorts, never as inferred events or semantic classifications.
 - Microcopy rules:
   - Lead with the user’s next action: “Choose a day,” “Allow Photos access,” or “Select a group.”
   - Explain limited access in plain language and offer the settings path only when needed.
@@ -133,7 +135,8 @@
 
 - Framework/styling system: macOS SwiftUI with native system colors, type, controls, column-header patterns, and SF Symbols.
 - Design-token constraints: do not add a custom design-system, theme, palette, spacing-token, or component-abstraction layer.
-- Privacy constraints: keep the human UI read-only and within the existing safe metadata contract: time range/capture time, counts, media kind, dimensions, duration, warning count, and location presence only. Do not surface protected data or agent-workflow controls.
+- Privacy constraints: keep the human UI read-only. Local photo/video content is intentionally visible only in the app; retain the existing limited metadata fields. Resolve media through public PhotoKit APIs, never filesystem paths or library internals, and do not export viewing artifacts. Do not surface private identifiers or agent-workflow controls.
+- Performance constraints: request bounded thumbnails lazily, load large media only on open, and release images/player items when their views disappear. Revalidate index membership after asynchronous loads and reject stale or cancelled results.
 - Compatibility constraints: preserve existing Photos authorization behavior, Asia/Seoul date interpretation, group-level semantics, stale-index invalidation, and every stable manual-QA identifier listed above.
 - Test/screenshot expectations: update manual QA and UI validation for every state/layout change; assert stable accessibility identifiers and values, including the disclosure identifier. Use only synthetic fixtures; never capture or commit user-library content.
 

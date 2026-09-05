@@ -8,6 +8,7 @@ import PhotosIndexPhotos
 @MainActor
 final class AppContainer: ObservableObject {
     let viewModel: AppViewModel
+    let mediaService: any HumanMediaServing
     private let host: UnixCommandHost
     private let runtime: IndexRuntime
     private let router: AppCommandRouter
@@ -37,6 +38,7 @@ final class AppContainer: ObservableObject {
             service: service
         )
         self.viewModel = viewModel
+        mediaService = HumanMediaService(runtime: runtime, provider: PhotoKitMediaProvider())
         host = UnixCommandHost(path: socketPath)
         self.runtime = runtime
         let evidenceInspectionService = EvidenceInspectionService()

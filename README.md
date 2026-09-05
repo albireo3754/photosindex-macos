@@ -140,12 +140,18 @@ The install script copies the CLI to `~/.local/bin/photosindex` and the app to
 ## Human App Workflow
 
 Open `PhotosIndex.app`, grant Photos access when prompted, choose a date using
-the **Calendar date (Asia/Seoul)** picker, and select **Index Date**. Browse the
+the **Calendar date (Asia/Seoul)** picker, and select **Browse**. Browse the
 result with fine, coarse, or media-kind grouping, then select an ordinal group
-to view its time range, counts, and limited asset metadata. Limited Photos
-access indexes only the items selected in macOS privacy settings.
+to see actual photo and video thumbnails alongside time and media details. Open
+a photo for a larger preview or a video for native play, pause, and seek controls.
+Limited Photos access indexes only the items selected in macOS privacy settings.
 
-This first human UI is read-only. Evidence generation, classification,
+Media is loaded through PhotoKit, including iCloud downloads when needed. A
+loading message and Retry action cover unavailable media; closing the viewer or
+changing the group/date stops playback and discards pending results. Viewing
+does not export files or expose Photos library paths or private identifiers.
+
+The human UI is read-only. Evidence generation, classification,
 decision validation, export, and verified move remain CLI/agent-only workflows;
 the app browser exposes no export, move, or delete controls.
 

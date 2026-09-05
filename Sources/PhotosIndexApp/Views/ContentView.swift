@@ -46,6 +46,7 @@ enum HumanBrowserPresentationState: Equatable {
 
 struct ContentView: View {
     @ObservedObject var viewModel: AppViewModel
+    let mediaService: any HumanMediaServing
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -55,7 +56,7 @@ struct ContentView: View {
                     CaptureGroupListView(viewModel: viewModel)
                         .navigationSplitViewColumnWidth(min: 340, ideal: 380, max: 460)
                 } detail: {
-                    CaptureGroupDetailView(viewModel: viewModel)
+                    CaptureGroupDetailView(viewModel: viewModel, mediaService: mediaService)
                 }
                 .navigationSplitViewStyle(.balanced)
             } else {
@@ -175,7 +176,7 @@ struct HumanBrowserWorkspace: View {
                 .accessibilityHidden(true)
             Text("Browse a day in your library")
                 .font(.largeTitle.weight(.semibold))
-            Text("Choose a calendar day to gather its capture groups. You can then browse the times, media kinds, and other safe metadata for that day.")
+            Text("Choose a calendar day to gather its capture groups, preview photos, and play videos.")
                 .font(.title3)
                 .foregroundStyle(.secondary)
             limitedAccessBanner
@@ -407,7 +408,7 @@ struct HumanBrowserWorkspace: View {
 
     private var privacyDisclosure: some View {
         DisclosureGroup(isExpanded: $isAgentConnectionExpanded) {
-            Text("PhotosIndex lets you review calendar-day groups without showing your photos or changing your library.")
+            Text("Preview photos and play videos here without changing your library. Media stays in this local app.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -506,7 +507,7 @@ struct CaptureGroupListView: View {
                 .foregroundStyle(.secondary)
 
             DisclosureGroup(isExpanded: $isPrivacyDisclosureExpanded) {
-                Text("PhotosIndex lets you review calendar-day groups without showing your photos or changing your library.")
+                Text("Preview photos and play videos here without changing your library. Media stays in this local app.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } label: {
@@ -657,6 +658,9 @@ private struct CaptureGroupRow: View {
 
 struct CaptureGroupDetailView: View {
     @ObservedObject var viewModel: AppViewModel
+    let mediaService: any HumanMediaServing
+    @State private var selectedMedia: MediaSelection?
+    @StateObject private var preview = MediaPreviewModel()
 
     var body: some View {
         Group {
@@ -673,13 +677,33 @@ struct CaptureGroupDetailView: View {
                 ContentUnavailableView(
                     "Select a group",
                     systemImage: "rectangle.stack",
-                    description: Text("Choose an ordinal group from the group list to see its safe metadata.")
+                    description: Text("Choose a group to preview its photos and videos.")
                 )
                 .accessibilityIdentifier(ManualQAElement.groupDetailStatus.rawValue)
                 .accessibilityValue("state=no-selection;assets=0;warnings=0")
             }
         }
         .navigationTitle(detailTitle)
+        .sheet(item: $selectedMedia, onDismiss: { preview.clear() }) { selection in
+            MediaViewer(selection: selection, service: mediaService, model: preview) {
+                closeMedia()
+            }
+        }
+        .onChange(of: mediaContext) { _, _ in closeMedia() }
+        .onDisappear { closeMedia() }
+    }
+
+    private var mediaContext: [String] {
+        [viewModel.selectedGroupDetail?.indexRunID ?? "",
+         viewModel.selectedGroupDetail?.group.id ?? "",
+         viewModel.syncResult?.indexRunID ?? "",
+         viewModel.selectedGroupID ?? "", viewModel.permissionStatus,
+         String(viewModel.selectedDate.timeIntervalSinceReferenceDate)]
+    }
+
+    private func closeMedia() {
+        preview.clear()
+        selectedMedia = nil
     }
 
     private var detailTitle: String {
@@ -719,77 +743,31 @@ struct CaptureGroupDetailView: View {
     }
 
     private func detailList(_ detail: GroupDetailPayload) -> some View {
-        List {
-            Section("Selected group") {
-                LabeledContent(
-                    "Time range",
-                    value: HumanBrowserFormatting.timeRange(
-                        start: detail.group.start,
-                        end: detail.group.end
-                    )
-                )
-                LabeledContent("Asset count", value: "\(detail.assets.count)")
-                LabeledContent("Warning count", value: "\(detail.group.warnings.count)")
-            }
-            .accessibilityIdentifier(ManualQAElement.groupDetail.rawValue)
-            .accessibilityValue(
-                "state=loaded;level=\(detail.group.level.rawValue);assets=\(detail.assets.count);warnings=\(detail.group.warnings.count)"
-            )
-
-            Section("Assets") {
-                ForEach(Array(detail.assets.enumerated()), id: \.element.id) { index, asset in
-                    AssetMetadataRow(asset: asset, ordinal: index + 1)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(HumanBrowserFormatting.timeRange(start: detail.group.start, end: detail.group.end))
+                        .font(.headline)
+                    Text("\(detail.assets.count) assets · \(detail.group.warnings.count) warnings")
+                        .foregroundStyle(.secondary)
                 }
-            }
-            .accessibilityIdentifier(ManualQAElement.assetList.rawValue)
-            .accessibilityValue("assets=\(detail.assets.count)")
-        }
-        .listStyle(.inset)
-    }
-}
-
-private struct AssetMetadataRow: View {
-    let asset: EvidenceAsset
-    let ordinal: Int
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Asset \(ordinal)")
-                .font(.headline)
-            LabeledContent("Media kind", value: asset.mediaKind.displayName)
-            LabeledContent("Capture time", value: HumanBrowserFormatting.timestamp(asset.capturedAt))
-            LabeledContent(
-                "Dimensions",
-                value: HumanBrowserFormatting.dimensions(
-                    width: asset.pixelWidth,
-                    height: asset.pixelHeight
+                .accessibilityIdentifier(ManualQAElement.groupDetail.rawValue)
+                .accessibilityValue(
+                    "state=loaded;level=\(detail.group.level.rawValue);assets=\(detail.assets.count);warnings=\(detail.group.warnings.count)"
                 )
-            )
-            LabeledContent("Duration", value: HumanBrowserFormatting.duration(asset.durationSeconds))
-            LabeledContent("Location present", value: asset.hasLocation ? "Yes" : "No")
-        }
-        .padding(.vertical, 5)
-        .accessibilityElement(children: .ignore)
-        .accessibilityIdentifier("\(ManualQAElement.assetRow.rawValue).\(ordinal)")
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityValue(
-            "ordinal=\(ordinal);kind=\(asset.mediaKind.rawValue);location=\(asset.hasLocation ? "present" : "absent")"
-        )
-    }
 
-    private var accessibilityLabel: String {
-        [
-            "Asset \(ordinal)",
-            "Media kind \(asset.mediaKind.displayName)",
-            "Capture time \(HumanBrowserFormatting.timestamp(asset.capturedAt))",
-            "Dimensions \(HumanBrowserFormatting.dimensions(width: asset.pixelWidth, height: asset.pixelHeight))",
-            "Duration \(HumanBrowserFormatting.duration(asset.durationSeconds))",
-            "Location present \(asset.hasLocation ? "Yes" : "No")",
-        ].joined(separator: ". ")
+                MediaBrowserView(detail: detail, service: mediaService) { selection in
+                    preview.clear()
+                    selectedMedia = selection
+                }
+                .id(mediaContext)
+            }
+            .padding()
+        }
     }
 }
 
-private enum HumanBrowserFormatting {
+enum HumanBrowserFormatting {
     static func timestamp(_ date: Date?) -> String {
         guard let date else { return "Unknown" }
         var calendar = Calendar(identifier: .gregorian)
@@ -840,7 +818,7 @@ private enum HumanBrowserFormatting {
     }
 }
 
-private extension MediaKind {
+extension MediaKind {
     var displayName: String {
         switch self {
         case .photo: "Photo"
