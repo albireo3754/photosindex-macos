@@ -13,6 +13,7 @@ final class AppCommandRouter: @unchecked Sendable {
     private let runtime: IndexRuntime
     private let permission: @Sendable () -> String
     private let requestAuthorization: @Sendable () -> String
+    private let externalSyncDidComplete: @Sendable (IndexSyncCommit) -> Void
     private let inspectEvidence: @Sendable (
         String,
         CaptureGroup,
@@ -27,6 +28,7 @@ final class AppCommandRouter: @unchecked Sendable {
         runtime: IndexRuntime,
         permission: @escaping @Sendable () -> String,
         requestAuthorization: @escaping @Sendable () -> String,
+        externalSyncDidComplete: @escaping @Sendable (IndexSyncCommit) -> Void,
         inspectEvidence: @escaping @Sendable (
             String,
             CaptureGroup,
@@ -42,6 +44,7 @@ final class AppCommandRouter: @unchecked Sendable {
         self.runtime = runtime
         self.permission = permission
         self.requestAuthorization = requestAuthorization
+        self.externalSyncDidComplete = externalSyncDidComplete
         self.inspectEvidence = inspectEvidence
         self.exportService = exportService ?? ExportCommandService(
             allowedRoot: Self.defaultExportRoot()
@@ -79,26 +82,27 @@ final class AppCommandRouter: @unchecked Sendable {
                 guard let date = request.arguments["date"] else {
                     return invalidArguments(request.id, "sync requires a date")
                 }
-                return try .success(id: request.id, payload: runtime.sync(localDate: date))
+                let commit = try runtime.syncWithCommit(localDate: date)
+                let response = try CommandResponse.success(id: request.id, payload: commit.payload)
+                externalSyncDidComplete(commit)
+                return response
             case "groups.list":
-                if let requestedDate = request.arguments["date"],
-                   !runtime.isIndexed(localDate: requestedDate)
-                {
-                    return .failure(
-                        id: request.id,
-                        error: CommandFailure(
-                            code: "index-date-mismatch",
-                            message: "The current in-memory index is for a different date.",
-                            recovery: "Run photosindex sync --date \(requestedDate) --wait."
-                        )
-                    )
-                }
                 let requestedLevel = request.arguments["level"] ?? "fine"
                 guard let level = GroupLevel(rawValue: requestedLevel) else {
                     return invalidArguments(
                         request.id,
                         "Unsupported grouping level: \(requestedLevel)"
                     )
+                }
+                if let requestedDate = request.arguments["date"] {
+                    do {
+                        return try .success(
+                            id: request.id,
+                            payload: runtime.groups(level: level, localDate: requestedDate)
+                        )
+                    } catch IndexRuntimeError.indexDateMismatch {
+                        return indexDateMismatch(request.id, requestedDate: requestedDate)
+                    }
                 }
                 return try .success(id: request.id, payload: runtime.groups(level: level))
             case "groups.show":
@@ -336,6 +340,17 @@ final class AppCommandRouter: @unchecked Sendable {
                 code: "stale-index-run",
                 message: "The group belongs to a different index run.",
                 recovery: "Run photosindex groups list again and use its indexRunID."
+            )
+        )
+    }
+
+    private func indexDateMismatch(_ id: String, requestedDate: String) -> CommandResponse {
+        .failure(
+            id: id,
+            error: CommandFailure(
+                code: "index-date-mismatch",
+                message: "The current in-memory index is for a different date.",
+                recovery: "Run photosindex sync --date \(requestedDate) --wait."
             )
         )
     }

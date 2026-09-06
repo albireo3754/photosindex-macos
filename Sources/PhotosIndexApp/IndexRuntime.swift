@@ -2,16 +2,25 @@ import Foundation
 import PhotosIndexCore
 import PhotosIndexPhotos
 
-enum IndexRuntimeError: Error {
+enum IndexRuntimeError: Error, Equatable {
     case invalidDate
     case notIndexed
+    case indexDateMismatch
+    case staleIndexRun
     case groupNotFound
+}
+
+struct IndexSyncCommit: Equatable, Sendable {
+    let payload: IndexSyncPayload
+    let generation: UInt64
 }
 
 final class IndexRuntime: @unchecked Sendable {
     private let library: any PhotoLibraryReading
     private let timezone: TimeZone
-    private let lock = NSLock()
+    private let syncGate = NSLock()
+    private let snapshotLock = NSLock()
+    private var snapshotGeneration: UInt64 = 0
     private var indexRunID = ""
     private var indexedLocalDate: String?
     private var indexedAssets: [String: PhotoAsset] = [:]
@@ -24,6 +33,13 @@ final class IndexRuntime: @unchecked Sendable {
     }
 
     func sync(localDate: String) throws -> IndexSyncPayload {
+        try syncWithCommit(localDate: localDate).payload
+    }
+
+    func syncWithCommit(localDate: String) throws -> IndexSyncCommit {
+        syncGate.lock()
+        defer { syncGate.unlock() }
+
         let (start, end) = try dayRange(localDate)
         let assets = try library.assets(from: start, to: end)
         let grouped = AssetGrouper().group(
@@ -37,31 +53,56 @@ final class IndexRuntime: @unchecked Sendable {
             localDate: localDate
         )
         let runID = "run_\(UUID().uuidString.lowercased())"
-        lock.lock()
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
+        snapshotGeneration &+= 1
+        let generation = snapshotGeneration
         indexRunID = runID
         indexedLocalDate = localDate
         indexedAssets = Dictionary(uniqueKeysWithValues: assets.map { ($0.id, $0) })
         sessions = grouped
         mediaKindGroups = groupedByMediaKind
-        lock.unlock()
-        return IndexSyncPayload(
-            indexRunID: runID,
-            localDate: localDate,
-            assetCount: assets.count,
-            coarseSessionCount: grouped.count,
-            fineGroupCount: grouped.reduce(0) { $0 + $1.segments.count }
+        return IndexSyncCommit(
+            payload: IndexSyncPayload(
+                indexRunID: runID,
+                localDate: localDate,
+                assetCount: assets.count,
+                coarseSessionCount: grouped.count,
+                fineGroupCount: grouped.reduce(0) { $0 + $1.segments.count }
+            ),
+            generation: generation
         )
     }
 
     func isIndexed(localDate: String) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
         return indexedLocalDate == localDate
     }
 
     func groups(level: GroupLevel) -> GroupsPayload {
-        lock.lock()
-        defer { lock.unlock() }
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
+        return groupsLocked(level: level)
+    }
+
+    func groups(level: GroupLevel, localDate: String) throws -> GroupsPayload {
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
+        guard indexedLocalDate == localDate else {
+            throw IndexRuntimeError.indexDateMismatch
+        }
+        return groupsLocked(level: level)
+    }
+
+    func groups(level: GroupLevel, expectedRunID: String) throws -> GroupsPayload {
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
+        try validateExpectedRunLocked(expectedRunID)
+        return groupsLocked(level: level)
+    }
+
+    private func groupsLocked(level: GroupLevel) -> GroupsPayload {
         let groups: [CaptureGroup]
         switch level {
         case .coarse:
@@ -93,8 +134,42 @@ final class IndexRuntime: @unchecked Sendable {
     }
 
     func group(id: String) throws -> (runID: String, group: CaptureGroup, assets: [PhotoAsset]) {
-        lock.lock()
-        defer { lock.unlock() }
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
+        return try groupLocked(id: id)
+    }
+
+    func group(
+        id: String,
+        expectedRunID: String
+    ) throws -> (runID: String, group: CaptureGroup, assets: [PhotoAsset]) {
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
+        try validateExpectedRunLocked(expectedRunID)
+        return try groupLocked(id: id)
+    }
+
+    func asset(id: String, groupID: String, expectedRunID: String) throws -> PhotoAsset? {
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
+        try validateExpectedRunLocked(expectedRunID)
+        if let group = mediaKindGroups.first(where: { $0.id == groupID }) {
+            return group.assetIDs.contains(id) ? indexedAssets[id] : nil
+        }
+        for session in sessions {
+            if session.id == groupID {
+                return session.assetIDs.contains(id) ? indexedAssets[id] : nil
+            }
+            if let segment = session.segments.first(where: { $0.id == groupID }) {
+                return segment.assetIDs.contains(id) ? indexedAssets[id] : nil
+            }
+        }
+        throw IndexRuntimeError.groupNotFound
+    }
+
+    private func groupLocked(
+        id: String
+    ) throws -> (runID: String, group: CaptureGroup, assets: [PhotoAsset]) {
         guard !indexRunID.isEmpty else { throw IndexRuntimeError.notIndexed }
         if let group = mediaKindGroups.first(where: { $0.id == id }) {
             return (indexRunID, group, group.assetIDs.compactMap { indexedAssets[$0] })
@@ -122,6 +197,11 @@ final class IndexRuntime: @unchecked Sendable {
             }
         }
         throw IndexRuntimeError.groupNotFound
+    }
+
+    private func validateExpectedRunLocked(_ expectedRunID: String) throws {
+        guard !indexRunID.isEmpty else { throw IndexRuntimeError.notIndexed }
+        guard indexRunID == expectedRunID else { throw IndexRuntimeError.staleIndexRun }
     }
 
     private func captureGroup(

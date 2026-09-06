@@ -29,7 +29,8 @@ final class AppCommandRouterTests: XCTestCase {
         let router = AppCommandRouter(
             runtime: runtime,
             permission: { "authorized" },
-            requestAuthorization: { "authorized" }
+            requestAuthorization: { "authorized" },
+            externalSyncDidComplete: { _ in }
         )
 
         let syncResponse = router.handle(
@@ -94,6 +95,7 @@ final class AppCommandRouterTests: XCTestCase {
             runtime: runtime,
             permission: { "authorized" },
             requestAuthorization: { "authorized" },
+            externalSyncDidComplete: { _ in },
             inspectEvidence: { runID, group, assets, output, _, page in
                 let packet = GroupEvidencePacket(
                     schemaVersion: 1,
@@ -152,6 +154,7 @@ final class AppCommandRouterTests: XCTestCase {
             runtime: runtime,
             permission: { "authorized" },
             requestAuthorization: { "authorized" },
+            externalSyncDidComplete: { _ in },
             inspectEvidence: { _, _, _, _, _, _ in
                 throw EvidenceInspectionServiceError.timedOut
             }
@@ -240,6 +243,134 @@ final class AppCommandRouterTests: XCTestCase {
         XCTAssertEqual(timedOutInspectResponse.error?.code, "evidence-timeout")
     }
 
+    func testDatedGroupsListNeverReturnsConcurrentDifferentDateSnapshot() async throws {
+        func photoAsset(id: String, capturedAt: Date) -> PhotoAsset {
+            PhotoAssetMapper.map(
+                PhotoMetadataInput(
+                    localIdentifier: id,
+                    capturedAt: capturedAt,
+                    mediaKind: .photo,
+                    durationSeconds: 0,
+                    pixelWidth: 100,
+                    pixelHeight: 100,
+                    coordinate: nil,
+                    originalFilename: "IMG_\(id).HEIC"
+                )
+            )
+        }
+
+        let firstDate = ISO8601DateFormatter().date(from: "2026-01-15T03:00:00Z")!
+        let secondDate = ISO8601DateFormatter().date(from: "2026-01-16T03:00:00Z")!
+        let firstAsset = photoAsset(id: "dated-router-first", capturedAt: firstDate)
+        let secondAsset = photoAsset(id: "dated-router-second", capturedAt: secondDate)
+        let library = ControllablyBlockedPhotoLibrary(
+            assets: [firstAsset, secondAsset]
+        )
+        let commitBarrier = RouterSyncCommitBarrier(targetGeneration: 2)
+        defer {
+            library.releaseAll()
+            commitBarrier.release()
+        }
+        let runtime = IndexRuntime(
+            library: library,
+            timezone: TimeZone(identifier: "Asia/Seoul")!
+        )
+        let router = AppCommandRouter(
+            runtime: runtime,
+            permission: { "authorized" },
+            requestAuthorization: { "authorized" },
+            externalSyncDidComplete: { commit in
+                commitBarrier.pauseIfTarget(commit)
+            }
+        )
+
+        let initialSync = Task.detached {
+            router.handle(
+                CommandRequest(method: "sync", arguments: ["date": "2026-01-15"])
+            )
+        }
+        XCTAssertTrue(library.waitForCallCount(1))
+        library.releaseNextCall()
+        let initialSyncPayload = try await initialSync.value.decodePayload(IndexSyncPayload.self)
+
+        let nextSync = Task.detached {
+            router.handle(
+                CommandRequest(method: "sync", arguments: ["date": "2026-01-16"])
+            )
+        }
+        XCTAssertTrue(library.waitForCallCount(2))
+
+        let preCommitResponse = router.handle(
+            CommandRequest(
+                method: "groups.list",
+                arguments: ["date": "2026-01-15", "level": "fine"]
+            )
+        )
+        let preCommitPayload = try preCommitResponse.decodePayload(GroupsPayload.self)
+        XCTAssertEqual(preCommitPayload.indexRunID, initialSyncPayload.indexRunID)
+        XCTAssertEqual(preCommitPayload.groups.flatMap(\.assetIDs), [firstAsset.id])
+        XCTAssertTrue(preCommitPayload.groups.allSatisfy { $0.localDate == "2026-01-15" })
+
+        library.releaseNextCall()
+        XCTAssertTrue(commitBarrier.waitUntilPaused())
+
+        let postCommitResponse = router.handle(
+            CommandRequest(
+                method: "groups.list",
+                arguments: ["date": "2026-01-15", "level": "fine"]
+            )
+        )
+        XCTAssertEqual(
+            postCommitResponse.error,
+            CommandFailure(
+                code: "index-date-mismatch",
+                message: "The current in-memory index is for a different date.",
+                recovery: "Run photosindex sync --date 2026-01-15 --wait."
+            )
+        )
+
+        let noDateResponse = router.handle(
+            CommandRequest(method: "groups.list", arguments: ["level": "fine"])
+        )
+        let noDatePayload = try noDateResponse.decodePayload(GroupsPayload.self)
+        XCTAssertEqual(noDatePayload.groups.flatMap(\.assetIDs), [secondAsset.id])
+        XCTAssertTrue(noDatePayload.groups.allSatisfy { $0.localDate == "2026-01-16" })
+
+        commitBarrier.release()
+        let nextSyncPayload = try await nextSync.value.decodePayload(IndexSyncPayload.self)
+        XCTAssertEqual(noDatePayload.indexRunID, nextSyncPayload.indexRunID)
+    }
+
+    func testSuccessfulSyncNotifiesAfterItsSnapshotIsCommitted() throws {
+        let runtime = IndexRuntime(
+            library: RouterFakePhotoLibrary(assets: []),
+            timezone: TimeZone(identifier: "Asia/Seoul")!
+        )
+        let recorder = RouterSyncNotificationRecorder()
+        let router = AppCommandRouter(
+            runtime: runtime,
+            permission: { "authorized" },
+            requestAuthorization: { "authorized" },
+            externalSyncDidComplete: { commit in
+                let currentRunID = try? runtime.groups(
+                    level: .fine,
+                    expectedRunID: commit.payload.indexRunID
+                ).indexRunID
+                recorder.record(commit: commit, currentRunID: currentRunID)
+            }
+        )
+
+        let response = router.handle(
+            CommandRequest(method: "sync", arguments: ["date": "2026-01-15"])
+        )
+        let payload = try response.decodePayload(IndexSyncPayload.self)
+        let notification = try XCTUnwrap(recorder.notification())
+
+        XCTAssertEqual(notification.commit.payload, payload)
+        XCTAssertEqual(notification.commit.generation, 1)
+        XCTAssertEqual(notification.currentRunID, payload.indexRunID)
+    }
+
     func testInspectRoutesTheRequestedAssetPage() throws {
         let capturedAt = ISO8601DateFormatter().date(from: "2026-01-15T03:00:00Z")!
         let assets = (0..<26).map { offset in
@@ -264,6 +395,7 @@ final class AppCommandRouterTests: XCTestCase {
             runtime: runtime,
             permission: { "authorized" },
             requestAuthorization: { "authorized" },
+            externalSyncDidComplete: { _ in },
             inspectEvidence: { runID, group, pageAssets, output, _, page in
                 XCTAssertEqual(pageAssets.map(\.id), page.assetIDs)
                 let packet = GroupEvidencePacket(
@@ -323,7 +455,8 @@ final class AppCommandRouterTests: XCTestCase {
         let router = AppCommandRouter(
             runtime: runtime,
             permission: { "not-determined" },
-            requestAuthorization: { "authorized" }
+            requestAuthorization: { "authorized" },
+            externalSyncDidComplete: { _ in }
         )
 
         let response = router.handle(CommandRequest(method: "authorize"))
@@ -342,7 +475,8 @@ final class AppCommandRouterTests: XCTestCase {
         let router = AppCommandRouter(
             runtime: runtime,
             permission: { "not-determined" },
-            requestAuthorization: { "not-determined" }
+            requestAuthorization: { "not-determined" },
+            externalSyncDidComplete: { _ in }
         )
 
         let response = router.handle(
@@ -383,6 +517,7 @@ final class AppCommandRouterTests: XCTestCase {
             runtime: runtime,
             permission: { "authorized" },
             requestAuthorization: { "authorized" },
+            externalSyncDidComplete: { _ in },
             exportService: exportService
         )
         let sync = router.handle(
@@ -497,6 +632,7 @@ final class AppCommandRouterTests: XCTestCase {
             runtime: runtime,
             permission: { "authorized" },
             requestAuthorization: { "authorized" },
+            externalSyncDidComplete: { _ in },
             exportService: exportService
         )
         let sync = router.handle(
@@ -632,6 +768,7 @@ final class AppCommandRouterTests: XCTestCase {
             ),
             permission: { "authorized" },
             requestAuthorization: { "authorized" },
+            externalSyncDidComplete: { _ in },
             exportService: restartedService
         )
         let planURL = root.appendingPathComponent("recovery-plan.json")
@@ -661,6 +798,62 @@ private final class RouterFakePhotoLibrary: PhotoLibraryReading, @unchecked Send
     func authorizationStatus() -> PhotoAuthorizationStatus { .authorized }
     func requestAuthorization() async -> PhotoAuthorizationStatus { .authorized }
     func assets(from start: Date, to end: Date) throws -> [PhotoAsset] { assetsValue }
+}
+
+private final class RouterSyncCommitBarrier: @unchecked Sendable {
+    private let condition = NSCondition()
+    private let targetGeneration: UInt64
+    private var isPaused = false
+    private var isReleased = false
+
+    init(targetGeneration: UInt64) {
+        self.targetGeneration = targetGeneration
+    }
+
+    func pauseIfTarget(_ commit: IndexSyncCommit) {
+        guard commit.generation == targetGeneration else { return }
+        condition.lock()
+        isPaused = true
+        condition.broadcast()
+        while !isReleased {
+            condition.wait()
+        }
+        condition.unlock()
+    }
+
+    func waitUntilPaused(timeout: TimeInterval = 1) -> Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        let deadline = Date().addingTimeInterval(timeout)
+        while !isPaused {
+            guard condition.wait(until: deadline) else { return isPaused }
+        }
+        return true
+    }
+
+    func release() {
+        condition.lock()
+        isReleased = true
+        condition.broadcast()
+        condition.unlock()
+    }
+}
+
+private final class RouterSyncNotificationRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: (commit: IndexSyncCommit, currentRunID: String?)?
+
+    func record(commit: IndexSyncCommit, currentRunID: String?) {
+        lock.lock()
+        value = (commit, currentRunID)
+        lock.unlock()
+    }
+
+    func notification() -> (commit: IndexSyncCommit, currentRunID: String?)? {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
 }
 
 private struct ServiceStubMaterializer: PhotoAssetMaterializing {
