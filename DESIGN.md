@@ -6,7 +6,7 @@
 - Last refreshed: 2026-09-06.
 - Primary product surfaces: the macOS setup workspace, contextual Photos-permission states, indexed capture-group browser, and selected-group detail.
 - Evidence reviewed:
-  - `CLAUDE.md` — module boundaries, privacy invariants, and read-only human UI boundary.
+  - `AGENTS.md` — module boundaries, privacy invariants, and read-only human UI boundary.
   - `README.md` — product behavior, human workflow, grouping semantics, and privacy limits.
   - `docs/agent-publication-privacy.md` — data minimization and public-artifact rules.
   - `docs/verified-move-design.md` — verified move is an agent workflow, not a human browser feature.
