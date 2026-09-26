@@ -71,8 +71,7 @@ Examples/        synthetic decision templates; never user media
 docs/            verified-move and local-signing design notes
 scripts/         build, signing, install, and signing regression helpers
 workflows/       bounded agent development workflow and its test
-CLAUDE.md        canonical repository guidance for coding agents
-AGENTS.md        symlink to CLAUDE.md
+AGENTS.md        repository guidance for coding agents
 ```
 
 ## Privacy And Generated Data

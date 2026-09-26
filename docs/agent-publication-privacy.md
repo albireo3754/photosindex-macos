@@ -3,8 +3,7 @@
 This policy is a mandatory, deny-by-default publication gate for coding agents.
 It is intentionally project-independent so it can be reused by Claude Code,
 Codex, and other repository-aware agents. Repository instructions should link
-to this file from both `CLAUDE.md` and `AGENTS.md`, or from one canonical file
-when the other is a symlink.
+to this file from `AGENTS.md`.
 
 The goal is data minimization, not merely secret detection: a public artifact
 must contain only information required to understand, review, or reproduce the
