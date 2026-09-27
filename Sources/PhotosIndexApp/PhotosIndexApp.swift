@@ -6,8 +6,8 @@ struct PhotosIndexApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(viewModel: container.viewModel)
-                .frame(minWidth: 640, minHeight: 420)
+            ContentView(viewModel: container.viewModel, mediaService: container.mediaService)
+                .frame(minWidth: 960, minHeight: 620)
         }
     }
 }

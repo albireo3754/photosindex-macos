@@ -7,6 +7,20 @@ description: Use when Apple Photos must be discovered, date-grouped, fully inspe
 
 PhotosIndex supplies bounded evidence; the calling agent decides semantics. A capture group is a time/location cohort, never proof of a place, dish, or personal context. Keep discovery read-only. When the user asks to organize or archive verified candidates, use the receipt-gated `move` path by default; use `export` only when the user explicitly wants to retain the Photos source.
 
+## Human media browser QA
+
+For an explicitly requested app-browsing check, use the native UI: choose a day,
+browse its groups, and open `photosindex.asset-preview.<ordinal>`. Thumbnail
+accessibility values distinguish `loading`, `loaded`, and `error`. The
+`photosindex.media-viewer` value distinguishes loading, photo-ready, video-ready,
+and error states. Use `photosindex.media-player` for native video controls and
+`photosindex.media-close` (or Escape) to dismiss. Failed loads offer
+`photosindex.media-retry`; iCloud-only media may need a download. Verify playback
+actually advances rather than treating a loaded player as proof of playback.
+Changing date/group must discard the previous preview and stop playback. Keep
+all real media and library-derived QA output local; use synthetic data in public
+reports. Viewing does not create classification evidence or authorize exports.
+
 ## Inspect every asset
 
 1. Run `photosindex status --format json`. If Photos access is not authorized, run `photosindex authorize --format json` and let the user resolve the macOS prompt. Never bypass TCC or query `Photos.sqlite`.
